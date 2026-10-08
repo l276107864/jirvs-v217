@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jirvs 生态合作伙伴中心</title>
+<style>
+:root{
+  --teal:#1769ff; --teal-d:#0f52d1; --gold:#c48a3a; --ink:#0f172a;
+  --bg:#f6f8fb; --line:#e4e8ef; --muted:#5b6678; --ok:#127a4b; --err:#e11d48;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;background:var(--bg);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
+button{font:inherit;cursor:pointer;border:none;border-radius:12px}
+.primary{background:var(--teal);color:#fff;padding:10px 20px;font-weight:600}
+.primary:hover{background:var(--teal-d)}
+.primary:disabled{opacity:.45;cursor:not-allowed}
+.ghost{background:#fff;color:var(--ink);border:1px solid var(--line);padding:9px 16px}
+.ghost:hover{background:#f6f8f7}
+.gold-btn{background:var(--gold);color:#fff;padding:10px 20px;font-weight:600}
+input,select{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;background:#fff}
+input:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(23,105,255,.15)}
+label{display:block;font-size:13px;color:#334;margin:14px 0 6px}
+.hint{font-size:12px;color:var(--muted);line-height:1.7}
+.err{color:var(--err);font-size:13px;min-height:18px;margin-top:8px}
+.tag{display:inline-block;padding:2px 10px;border-radius:20px;font-size:12px;font-weight:600;background:#e8f1f0;color:var(--teal-d)}
+.tag.ok{background:#e3f4ec;color:var(--ok)}
+.tag.bad{background:#fbe9e7;color:var(--err)}
+.tag.warn{background:#fdf3e3;color:#b0791f}
+/* 登录 */
+#loginView{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(180deg,#ffffff 0%,var(--bg) 100%)}
+.login-card{background:#fff;border:1px solid var(--line);border-radius:24px;padding:36px 32px;width:100%;max-width:420px;box-shadow:0 30px 80px rgba(15,23,42,.11),0 5px 18px rgba(15,23,42,.04)}
+.login-card h1{font-size:21px;margin-bottom:4px}
+.login-card h1 span{color:var(--teal)}
+.login-card .sub{color:var(--muted);font-size:13px;margin-bottom:10px}
+.demo-jump{margin-top:18px;border-top:1px dashed var(--line);padding-top:14px}
+.demo-jump .hint{margin-bottom:8px}
+.demo-jump button{width:100%;margin-top:8px}
+/* 头部 */
+header{background:rgba(255,255,255,.96);color:var(--ink);padding:22px 20px 18px;border-bottom:1px solid var(--line)}
+.hwrap{max-width:860px;margin:0 auto}
+header .top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+header h1{font-size:22px}
+header h1 span{color:var(--teal);font-size:15px;font-weight:600;margin-left:8px}
+.hbtns{display:flex;gap:8px;flex:none}
+.hbtns button{background:#fff;border:1px solid var(--line);color:var(--ink);padding:7px 14px;font-size:13px}
+.bell{position:relative;font-size:16px!important;padding:7px 12px!important}
+.bell .bdg{position:absolute;top:-6px;right:-6px;min-width:18px;height:18px;line-height:18px;text-align:center;border-radius:999px;background:#e11d48;color:#fff;font-size:11px;font-weight:700;padding:0 5px}
+.hbtns button:hover{background:#f9fafb}
+.hrow{padding:9px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px}
+.hwrap .hlk{font-weight:700;color:var(--blue);word-break:break-all}
+.hwrap .hcopy{background:#fff;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12.5px;cursor:pointer;color:var(--blue);font-weight:700;margin-left:8px;flex:none}
+.hrow:last-child{border-bottom:none}
+.hrow .lab{color:var(--muted)}
+.hrow .lab b{color:var(--ink);font-weight:650;margin-right:8px}
+/* 内容 */
+.wrap{max-width:860px;margin:0 auto;padding:18px 16px 40px}
+.sec{background:#fff;border:1px solid var(--line);border-radius:20px;padding:22px;margin-bottom:16px;box-shadow:0 1px 2px rgba(15,23,42,.03)}
+.sec h2{font-size:16px;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+.vip-locked{border:1.5px dashed #c7cedb;border-radius:14px;padding:14px 16px;color:#9aa3b5;background:#f4f6fa;font-size:13.5px}
+.vip-open{border:1.5px solid var(--blue);border-radius:14px;padding:14px 16px;background:#eef4ff;font-size:13.5px}
+.vip-signed{border:1.5px solid #bfe3cd;border-radius:14px;padding:14px 16px;background:#f0faf3;font-size:13.5px}
+.notice-hi{background:linear-gradient(135deg,#e3eeff,#f2f7ff);border:1.5px solid var(--blue);color:var(--ink);font-size:15px;box-shadow:0 4px 14px rgba(23,105,255,.12)}
+.notice-hi b{color:var(--blue)}
+.notice{border:1px solid #b8d3ff;background:#eaf2ff;border-radius:14px;padding:14px 16px;margin-top:12px;font-size:13px;line-height:1.9}
+.notice b{color:var(--teal-d)}
+.agr-box{border:1px solid var(--line);border-radius:14px;background:#fbfcfe;padding:18px;max-height:320px;overflow-y:auto;font-size:13px;line-height:1.9;color:#223}
+.agr-box h3{text-align:center;font-size:16px;margin-bottom:4px}
+.agr-box .meta{text-align:center;color:var(--muted);font-size:12px;margin-bottom:12px}
+.agr-box h4{font-size:13.5px;margin:14px 0 4px}
+.seg{display:flex;gap:8px;margin-top:6px}
+.seg button{flex:1;padding:10px;border:1px solid var(--line);background:#fff;border-radius:9px}
+.seg button.on{background:var(--teal);color:#fff;border-color:var(--teal);font-weight:600}
+.sigwrap{border:1.5px dashed #c4cfdd;border-radius:12px;background:#fff}
+#sigPad{width:100%;height:auto;display:block;touch-action:none;cursor:crosshair;border-radius:12px}
+.recbox{margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:14px 16px;font-size:13.5px;line-height:2;background:#fbfcfe}
+.req{color:#e5484d;margin-left:3px;font-weight:700}
+.chk{display:flex;gap:8px;align-items:flex-start;margin-top:14px;font-size:13px;line-height:1.7;cursor:pointer}
+.chk input{width:17px;height:17px;margin-top:2px;flex:none;accent-color:var(--teal)}
+.linkbox{display:flex;gap:8px;align-items:stretch;margin-top:10px}
+.linkbox .lk{flex:1;background:#0f172a;color:#bfdbfe;font-family:ui-monospace,Menlo,monospace;font-size:13px;border-radius:9px;padding:11px 12px;word-break:break-all}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:12px}
+.stat{border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat .k{font-size:12px;color:var(--muted)}
+.stat .v{font-size:21px;font-weight:700;margin-top:4px}
+.stat .v.gold{color:var(--gold)} .stat .v.teal{color:var(--teal-d)} .stat .v.red{color:var(--err)}
+.stat .u{font-size:12px;color:var(--muted);margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:10px}
+th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600;font-size:12px;background:#f6f8fb}
+tr:last-child td{border-bottom:none}
+.modal-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:100;padding:14px}
+.modal-mask.open{display:flex}
+.modal{background:#fff;border-radius:20px;box-shadow:0 30px 80px rgba(15,23,42,.25);width:100%;max-width:640px;max-height:92vh;overflow-y:auto;padding:22px}
+.modal h3{font-size:16px;margin-bottom:12px}
+.mrow{display:flex;gap:10px;justify-content:flex-end;margin-top:16px}
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;display:none;z-index:200;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.locked{opacity:.45;pointer-events:none}
+@media (max-width:640px){ .cards{grid-template-columns:repeat(2,1fr)} .linkbox{flex-direction:column} }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-card">
+    <h1>Jirvs <span>生态合作伙伴中心</span></h1>
+    <p class="sub">生态合作伙伴登录</p>
+    <label>邮箱</label><input id="loginEmail" type="email" placeholder="注册时填写的邮箱">
+    <label>密码</label><input id="loginPw" type="password" placeholder="至少 6 位">
+    <button class="primary" style="width:100%;margin-top:20px;padding:12px" onclick="doLogin()">登录</button>
+    <div class="err" id="loginErr"></div>
+    <div class="demo-jump">
+      <div class="hint">还没有账号？</div>
+      <button class="ghost" onclick="showSignup()">注册成为生态合作伙伴</button>
+    </div>
+  </div>
+</div>
+
+<!-- 注册/签约 -->
+<div id="signupView" style="display:none;min-height:100vh;padding:20px;background:linear-gradient(180deg,#ffffff 0%,var(--bg) 100%)">
+  <div class="login-card" style="max-width:640px;margin:0 auto">
+    <h1>Jirvs <span>生态合作伙伴签约</span></h1>
+    <p class="sub">填写资料并签署协议，即可获得专属推荐链接</p>
+    <button class="ghost" style="margin-bottom:10px" onclick="backToLogin()">← 返回登录</button>
+    <div id="signupForm"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="appView" hidden>
+  <header>
+    <div class="hwrap">
+      <div class="top">
+        <h1>Jirvs <span>生态合作伙伴中心</span></h1>
+        <div class="hbtns"><button class="bell" id="bellBtn" onclick="openNotices()">🔔<span class="bdg" id="bellBadge" hidden>0</span></button><button onclick="doLogout()">退出</button></div>
+      </div>
+      <div class="hrow"><span class="lab"><b>合作伙伴：</b><span id="hName">—</span></span><span id="hSignTag"></span><span class="lab" style="margin-left:20px"><b>推荐码：</b><span id="hCode">—</span></span></div>
+      <div class="hrow"><span class="lab"><b>推广链接：</b></span><span class="hlk" id="refLink">—</span><button class="hcopy" onclick="copyRef()">复制链接</button></div>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div id="dashWrap">
+      <!-- 业绩 -->
+      <div class="sec">
+        <h2>📊 我的业绩</h2>
+        <div class="cards" id="statCards"></div>
+        <h2 style="margin-top:18px">💰 佣金明细</h2>
+        <table>
+          <thead><tr><th>时间</th><th>推荐商户</th><th>订阅金额</th><th>比例</th><th>佣金</th><th>状态</th></tr></thead>
+          <tbody id="commRows"></tbody>
+        </table>
+        <h2 style="margin-top:18px">🧾 打款记录</h2>
+        <table>
+          <thead><tr><th>打款时间</th><th>金额</th><th>手续费</th><th>实到</th><th>状态</th><th>结算单</th></tr></thead>
+          <tbody id="payoutRows"></tbody>
+        </table>
+      </div>
+
+      <!-- 我的协议 -->
+      <div class="sec">
+        <h2>📑 我的协议</h2>
+        <div id="myAgrInfo" style="margin-top:8px"></div>
+        <div class="mrow" style="justify-content:flex-start"><button class="ghost" onclick="openAgrView()">查看协议与签署记录</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 协议查看弹窗 -->
+<div class="modal-mask" id="agrModal">
+  <div class="modal">
+    <h3>协议与签署记录</h3>
+    <div class="agr-box" id="agrViewBox" style="max-height:46vh"></div>
+    <div id="signRecord" style="margin-top:14px;font-size:13px;line-height:2"></div>
+    <div class="mrow"><button class="ghost" onclick="closeM('agrModal')">关闭</button></div>
+  </div>
+</div>
+
+<div class="modal-mask" id="noticeModal">
+  <div class="modal" style="max-width:520px">
+    <h3>消息提醒</h3>
+    <div id="noticeList" style="font-size:13.5px;line-height:1.9"></div>
+    <div class="mrow"><button class="ghost" onclick="closeM('noticeModal')">知道了</button></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = 'none'; }, 2200); }
+async function copyText(txt) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(txt); ok = true; } catch {}
+  if (!ok) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, txt.length);
+      ok = document.execCommand('copy'); ta.remove();
+    } catch {}
+  }
+  toast(ok ? '已复制' : '复制失败，请长按复制');
+}
+const closeM = (id) => $(id).classList.remove('open');
+async function apiGet(url) {
+  const r = await fetch(url, { credentials: 'include' });
+  if (r.status === 401) { doLogout(); throw new Error('登录已过期，请重新登录'); }
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || '请求失败');
+  return j;
+}
+async function apiPost(url, body) {
+  const r = await fetch(url, { method: 'POST', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || '请求失败');
+  return j;
+}
+
+/* ===== v21.7 协议全文 ===== */
+const AGREEMENT_HTML = `<h3 id="agrTitle">Jirvs 生态合作伙伴合作协议</h3>
+<div class="meta" id="agrMeta">协议编号：JIRVS-ECO-2026-001 ｜ 版本：V1.1</div>
+<p><b>甲方（委托方）：</b>Jirvs Limited（公司注册编号：81299026）<br>注册地址：RM D07, 8/F KAI TAK FTY BLDG, NO. 99 KING FUK ST, SAN PO KONG, HONG KONG</p>
+<p><b>乙方（生态合作伙伴）：</b>以签署时填写并经系统记录的信息为准。</p>
+<h4>第一条 合作性质与定位</h4>
+<p>1.1 双方为平等民事委托合作关系，乙方以 Jirvs 生态合作伙伴身份推广甲方平台服务；双方不构成劳动、雇佣、劳务、代理或合伙关系，乙方无权代表甲方对外作出任何承诺或签署文件。<br>1.2 甲方不为乙方承担社保、公积金及任何员工福利。</p>
+<h4>第二条 推广与有效客户（30 天归属保护期）</h4>
+<p>2.1 乙方通过专属推荐链接/推荐码邀请客户，客户归属以甲方系统记录为准；任何绕过专属链接的私下交易，不计入乙方业绩。<br>2.2 被推荐客户须完成注册、开通服务并实际付费订阅（订阅费实际到账，且未发生退款、拒付），方计为有效业绩。<br>2.3 客户通过乙方链接注册后 30 天为归属保护期：保护期内产生有效业绩的客户即与乙方绑定，绑定后该客户在本协议有效期内产生的有效业绩持续计入乙方；注册满 30 天仍未产生有效业绩的，绑定自动解除。</p>
+<h4>第三条 佣金与结算</h4>
+<p>3.1 乙方推荐的客户向甲方支付订阅费后，甲方按签署记录载明的比例向乙方支付一次性佣金。甲方于每月 5 日将乙方上月应得佣金汇入乙方登记的银行账户，相关跨境付款通道费用从应付金额中扣除，以银行实际到账为准。甲方每次付款向乙方提供电子结算单。<br>3.2 客户发生退款、恶意刷单、欺诈或拒付（Chargeback）的，甲方核实后有权人工扣减对应佣金或从乙方后续应付佣金中追偿；已多付的，乙方应予返还。<br>3.3 乙方为企业的，凭本协议、电子结算单及银行入账凭证即可办理对公入账与结汇，无需向甲方开具发票。乙方因佣金收入产生的税费，由乙方自行依法申报缴纳，甲方不代扣代缴。</p>
+<h4 id="art4">第四条 协议期限</h4>
+<p>本协议自签署之日起生效，有效期两年。期满前一个月，双方可协商续签；未提出异议的，自动延续一年。</p>
+<h4 id="art5">第五条 合规与推广红线</h4>
+<p>5.1 乙方推广行为须遵守适用的法律法规、监管要求及推广平台规则，不得进行虚假、夸大或误导性宣传；不得承诺"包过审""费率最低""收益保障"等未经甲方书面确认的内容；不得宣称甲方为持牌支付机构，不得暗示客户资金由甲方经手、托管或担保。<br>5.2 乙方不得向从事违法违规业务（包括但不限于赌博、诈骗、非法集资、洗钱、虚拟资产违规交易、侵权假冒）的客户推广或引流；不得协助客户伪造、变造资料以通过支付通道审核。一经发现，甲方有权立即封停乙方账号、清零全部未结佣金，并追究法律责任；涉嫌违法的，甲方将依法向有关部门报告。<br>5.3 乙方不得冒充甲方员工或官方渠道；未经甲方书面授权，不得使用甲方商标、商号及品牌素材，不得抢注与甲方相关的商标、域名或品牌词广告。<br>5.4 乙方不得非法收集、使用或出售客户个人信息；不得将经甲方归因的客户私下转介至与甲方竞争的平台，或以其他方式绕过甲方系统进行交易（"飞单"）。<br>5.5 乙方应保证签约资料真实、有效；资料变更应及时通知甲方。提供虚假资料的，甲方有权立即解除本协议并追偿损失。<br>5.6 甲方有权对乙方推广内容及行为进行合规审查，乙方应予以配合；推广内容违规的，乙方应按甲方要求立即整改或下架。<br>5.7 乙方不得通过注册关联账号，为自身实际控制的业务购买订阅以套取佣金；一经查实，甲方有权取消关联收益并解除本协议。</p>
+<h4>第六条 保密</h4>
+<p>乙方对合作中知悉的甲方商业信息（包括佣金政策、客户信息、技术资料）负有保密义务，未经甲方书面同意不得向任何第三方披露；本条在协议终止后继续有效。</p>
+<h4>第七条 解除</h4>
+<p>有下列情形之一的，甲方有权直接解除本协议：乙方违反第五条合规与推广红线。违规解除的，未结算佣金一并清零；解除后乙方专属推荐链接与推荐码立即失效。</p>
+<h4>第八条 签署效力与争议解决</h4>
+<p>本协议由乙方在 Jirvs 生态合作伙伴中心阅读全文、填写真实资料、勾选同意并点击"同意并签署"后成立并生效；系统记录的签署人信息、约定佣金比例、签署时间、IP 地址及协议版本，与纸质签署具有同等法律效力。因本协议产生争议，双方应协商解决；协商不成的，提交香港特别行政区法院专属管辖。</p>
+`;
+
+/* ===== 状态 ===== */
+let me = null;       // /api/partner/me
+let commissions = []; // /api/partner/commissions
+let payouts = [];     // /api/partner/payouts
+let ptype = 'person';
+let sigDrawn = false;
+
+/* ===== 登录/注册 ===== */
+async function doLogin() {
+  const email = $('loginEmail').value.trim();
+  const pw = $('loginPw').value;
+  if (!email || !pw) { $('loginErr').textContent = '请填写邮箱和密码'; return; }
+  $('loginErr').textContent = '';
+  try {
+    await apiPost('/api/partner/login', { email, password: pw });
+    await loadAll();
+  } catch (e) { $('loginErr').textContent = e.message; }
+}
+function doLogout() {
+  apiPost('/api/partner/logout', {}).catch(() => {});
+  me = null;
+  $('appView').hidden = true;
+  $('signupView').style.display = 'none';
+  $('loginView').style.display = 'flex';
+}
+function showSignup() {
+  $('loginView').style.display = 'none';
+  $('signupView').style.display = 'block';
+  renderSignupForm();
+}
+function backToLogin() {
+  $('signupView').style.display = 'none';
+  $('loginView').style.display = 'flex';
+}
+function setType(t) {
+  ptype = t;
+  $('segPerson').classList.toggle('on', t === 'person');
+  $('segCompany').classList.toggle('on', t === 'company');
+  $('personFields').hidden = t !== 'person';
+  $('companyFields').hidden = t !== 'company';
+}
+function chkState() { const b = $('signBtn'); if (b) b.disabled = !$('chkAll').checked; }
+
+function renderSignupForm() {
+  $('signupForm').innerHTML = `
+    <div class="notice notice-hi"><b>佣金政策</b>：$199 终身订阅，一次性返佣。V1 生态合作伙伴 30%，V2 战略合作伙伴（特邀）50%。每月 5 日打出上月佣金。</div>
+    <div class="agr-box" style="margin-top:12px;max-height:260px">${AGREEMENT_HTML}</div>
+    <label>登录邮箱<span class="req">*</span></label><input id="sEmail" type="email" placeholder="用于登录">
+    <label>登录密码<span class="req">*</span></label><input id="sPassword" type="password" placeholder="至少 6 位">
+    <label>伙伴类型</label>
+    <div class="seg">
+      <button id="segPerson" class="on" onclick="setType('person')">个人</button>
+      <button id="segCompany" onclick="setType('company')">企业</button>
+    </div>
+    <div id="personFields">
+      <label>姓名（与身份证一致）<span class="req">*</span></label><input id="fName" placeholder="例如：王海">
+      <label>身份证号<span class="req">*</span></label><input id="fIdno" placeholder="18 位身份证号">
+    </div>
+    <div id="companyFields" hidden>
+      <label>公司名称（与营业执照一致）<span class="req">*</span></label><input id="fCompany" placeholder="例如：某某科技有限公司">
+      <label>统一社会信用代码<span class="req">*</span></label><input id="fCredit" placeholder="18 位统一社会信用代码">
+      <label>法定代表人<span class="req">*</span></label><input id="fLegal" placeholder="法定代表人姓名">
+    </div>
+    <label>联系电话<span class="req">*</span></label><input id="fPhone" placeholder="手机号">
+    <label>开户银行<span class="req">*</span></label><input id="fBank" placeholder="例如：招商银行">
+    <label>银行卡号（佣金打到此卡）<span class="req">*</span></label><input id="fAccount" placeholder="银行卡号">
+    <label class="chk"><input type="checkbox" id="chkAll" onchange="chkState()"><span>我已逐条阅读并同意《Jirvs 生态合作伙伴合作协议》全部条款，遵守第五条合规与推广红线。</span></label>
+    <div class="err" id="signErr"></div>
+    <label>手写签名（请在框内签下你的姓名）<span class="req">*</span></label>
+    <div class="sigwrap"><canvas id="sigPad" width="660" height="340"></canvas></div>
+    <div class="mrow" style="justify-content:flex-start;margin-top:6px"><button class="ghost" type="button" onclick="clearSig()">清除重写</button></div>
+    <button class="primary" id="signBtn" style="width:100%;padding:13px;margin-top:10px" disabled onclick="doSignup()">同意并签署</button>`;
+  requestAnimationFrame(initSig);
+}
+
+async function doSignup() {
+  const email = $('sEmail').value.trim();
+  const password = $('sPassword').value;
+  const nm = ptype === 'person' ? $('fName').value.trim() : $('fCompany').value.trim();
+  if (!sigDrawn) { $('signErr').textContent = '请先在签名框内手写签名'; return; }
+  if (!email || !password || password.length < 6) { $('signErr').textContent = '请填写有效邮箱和至少 6 位密码'; return; }
+  if (!nm || !$('fPhone').value.trim() || !$('fBank').value.trim() || !$('fAccount').value.trim()) {
+    $('signErr').textContent = '带 * 的每一项都是必填'; return;
+  }
+  $('signErr').textContent = '';
+  try {
+    await apiPost('/api/partner/signup', {
+      email, password, name: nm, type: ptype,
+      phone: $('fPhone').value.trim(),
+      legal_name: ptype === 'company' ? $('fLegal').value.trim() : nm,
+      bank_account: $('fBank').value.trim() + ' ****' + $('fAccount').value.trim().slice(-4),
+      credit_code: ptype === 'company' ? $('fCredit').value.trim() : $('fIdno').value.trim(),
+    });
+    $('signupView').style.display = 'none';
+    await loadAll();
+    toast('签约成功，专属推荐链接已生成');
+  } catch (e) { $('signErr').textContent = e.message; }
+}
+
+/* ===== 签名板 ===== */
+function initSig() {
+  const c = $('sigPad'); if (!c || c._inited) return; c._inited = true;
+  const x = c.getContext('2d');
+  x.lineWidth = 3; x.lineCap = 'round'; x.lineJoin = 'round'; x.strokeStyle = '#111827';
+  let down = false, last = null;
+  const pos = (e) => { const r = c.getBoundingClientRect(); const sx = c.width / r.width, sy = c.height / r.height; return { x: (e.clientX - r.left) * sx, y: (e.clientY - r.top) * sy }; };
+  c.addEventListener('mousedown', (e) => { e.preventDefault(); down = true; last = pos(e); x.beginPath(); x.moveTo(last.x, last.y); x.lineTo(last.x + 0.1, last.y + 0.1); x.stroke(); sigDrawn = true; });
+  c.addEventListener('mousemove', (e) => { if (!down) return; const p = pos(e); x.beginPath(); x.moveTo(last.x, last.y); x.lineTo(p.x, p.y); x.stroke(); last = p; });
+  window.addEventListener('mouseup', () => { down = false; });
+  c.addEventListener('touchstart', (e) => { e.preventDefault(); const t = e.touches[0]; down = true; last = pos(t); x.beginPath(); x.moveTo(last.x, last.y); x.lineTo(last.x + 0.1, last.y + 0.1); x.stroke(); sigDrawn = true; }, { passive: false });
+  c.addEventListener('touchmove', (e) => { e.preventDefault(); if (!down) return; const p = pos(e.touches[0]); x.beginPath(); x.moveTo(last.x, last.y); x.lineTo(p.x, p.y); x.stroke(); last = p; }, { passive: false });
+  c.addEventListener('touchend', () => { down = false; });
+}
+function clearSig() { const c = $('sigPad'); if (!c) return; const x = c.getContext('2d'); x.clearRect(0, 0, c.width, c.height); sigDrawn = false; }
+
+/* ===== 数据加载与渲染 ===== */
+async function loadAll() {
+  const [meJ, commJ, payoutJ] = await Promise.all([
+    apiGet('/api/partner/me'),
+    apiGet('/api/partner/commissions'),
+    apiGet('/api/partner/payouts'),
+  ]);
+  me = meJ; commissions = commJ.commissions || []; payouts = payoutJ.payouts || [];
+  $('loginView').style.display = 'none';
+  $('signupView').style.display = 'none';
+  $('appView').hidden = false;
+  renderAll();
+  window.scrollTo(0, 0);
+}
+
+function renderAll() {
+  if (!me) return;
+  const p = me.partner, st = me.stats;
+  // 协议标题按 V1/V2
+  const isV2 = p.contract_ver === 'V2';
+  const agrTitle = isV2 ? 'Jirvs 战略合作伙伴合作协议' : 'Jirvs 生态合作伙伴合作协议';
+  const agrVer = isV2 ? 'V2.1' : 'V1.1';
+
+  $('hName').textContent = p.name + (p.type === 'company' ? '（企业）' : '（个人）') + ' · ' + (isV2 ? 'V2 战略' : 'V1 生态');
+  $('hCode').textContent = p.ref_code || '—';
+  $('hSignTag').innerHTML = p.sign_status === 'signed' ? '<span class="tag ok">已签署</span>' : '<span class="tag bad">未签署</span>';
+  $('refLink').textContent = p.ref_code ? 'https://portal.jirvs.com/?ref=' + p.ref_code : '—';
+
+  // 只显示自己的比例
+  const rateText = isV2 ? 'V2 战略合作伙伴 50%' : 'V1 生态合作伙伴 30%';
+
+  $('statCards').innerHTML = [
+    ['推荐商户', st.merchants + ' 家', ''],
+    ['待打款', '$' + Number(st.pending).toFixed(2), Number(st.pending) > 0 ? 'teal' : ''],
+    ['累计已打款', '$' + Number(st.paid).toFixed(2), 'gold'],
+    ['我的比例', rateText, 'teal'],
+  ].map((c) => `<div class="stat"><div class="k">${c[0]}</div><div class="v ${c[2]}">${c[1]}</div>${c[0] === '待打款' ? '<div class="u">每月 5 日打出上月</div>' : ''}</div>`).join('');
+
+  // 佣金明细
+  $('commRows').innerHTML = commissions.length ? commissions.map((c) => `
+    <tr><td>${esc((c.created_at || '').slice(0, 10))}</td>
+    <td>${esc(c.merchant_name || c.merchant_id || '—')}</td>
+    <td>$199.00</td><td>${c.rate}%</td><td>$${Number(c.amount).toFixed(2)}</td>
+    <td>${c.status === 'paid' ? '<span class="tag ok">已打款</span>' : '<span class="tag warn">待打款</span>'}</td></tr>`
+  ).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted)">暂无佣金记录</td></tr>';
+
+  // 打款记录
+  $('payoutRows').innerHTML = payouts.length ? payouts.map((r) => `
+    <tr><td>${esc((r.created_at || '').slice(0, 10))}</td>
+    <td>$${Number(r.amount).toFixed(2)}</td><td>$${Number(r.fee || 0).toFixed(2)}</td>
+    <td>$${Number(r.net_amount || 0).toFixed(2)}</td>
+    <td>${r.status === 'paid' ? '<span class="tag ok">已打款</span>' : '<span class="tag warn">' + esc(r.status) + '</span>'}</td>
+    <td><button class="ghost" onclick="dlStatement('${esc(r.id)}')">下载</button></td></tr>`
+  ).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted)">暂无打款记录</td></tr>';
+
+  $('myAgrInfo').innerHTML =
+    `<span class="tag ok">已签署</span>
+     <span style="margin-left:10px">合同号：<b>${esc(p.contract_no || '—')}</b></span><br>
+     <span style="margin-top:6px;display:inline-block">约定佣金比例：<b>${rateText}</b>（签署锁定，仅自己可见）</span>`;
+
+  // 协议查看用动态标题
+  window._agrTitle = agrTitle; window._agrVer = agrVer;
+  renderBell();
+}
+
+function computeNotices() { return []; }
+function renderBell() { const b = $('bellBadge'); if (b) b.hidden = true; }
+function openNotices() {
+  $('noticeList').innerHTML = '<p style="color:var(--muted)">暂无消息提醒。</p>';
+  $('noticeModal').classList.add('open');
+}
+function copyRef() {
+  const t = $('refLink').textContent;
+  if (!t || t === '—') { toast('暂无推荐链接'); return; }
+  copyText(t);
+}
+function dlStatement(payoutId) {
+  const r = payouts.find((x) => String(x.id) === String(payoutId));
+  if (!r || !me) return;
+  const p = me.partner;
+  const txt = ['Jirvs 生态合作伙伴佣金结算单', '———————————————',
+    '合作伙伴：' + p.name, '推荐码：' + (p.ref_code || '—'),
+    '打款时间：' + (r.created_at || '').slice(0, 10),
+    '佣金（USD）：$' + Number(r.amount).toFixed(2),
+    '渠道费用（USD）：$' + Number(r.fee || 0).toFixed(2),
+    '实际到账（USD）：$' + Number(r.net_amount || 0).toFixed(2),
+    '到账银行卡：' + (p.bank_account || '—'),
+    '说明：每月 5 日打出上月佣金，通道实际费用已扣除，以银行实到为准。'].join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + txt], { type: 'text/plain;charset=utf-8' }));
+  a.download = 'Jirvs结算单-' + (r.created_at || '').slice(0, 10) + '.txt';
+  a.click(); URL.revokeObjectURL(a.href);
+  toast('结算单已生成');
+}
+function openAgrView() {
+  if (!me) return;
+  const p = me.partner;
+  const isV2 = p.contract_ver === 'V2';
+  const html = AGREEMENT_HTML
+    .replace(/Jirvs 生态合作伙伴合作协议/g, window._agrTitle || 'Jirvs 生态合作伙伴合作协议')
+    .replace(/V1\.1/g, window._agrVer || 'V1.1');
+  $('agrViewBox').innerHTML = html;
+  const rateText = isV2 ? 'V2 战略合作伙伴 50%' : 'V1 生态合作伙伴 30%';
+  $('signRecord').innerHTML =
+    `<b>签署记录</b><br>合同号：<b>${esc(p.contract_no || '—')}</b><br>协议版本：${window._agrVer || 'V1.1'}<br>` +
+    `甲方：Jirvs Limited（系统确认）<br>乙方：<b>${esc(p.name)}</b>（${p.type === 'company' ? '企业' : '个人'}）<br>` +
+    `乙方联系电话：${esc(p.phone || '—')}<br>乙方电子邮箱：${esc(p.email || '—')}<br>` +
+    `乙方收款银行卡：${esc(p.bank_account || '—')}<br>` +
+    `约定佣金比例：<b>${rateText}</b>（签署锁定）<br>签署时间：${esc(p.signed_at || '')}`;
+  $('agrModal').classList.add('open');
+}
+// 页面加载时尝试恢复会话
+(async function () {
+  try { await loadAll(); } catch (e) { /* 未登录，停留在登录页 */ }
+})();
+</script>
+</body>
+</html>

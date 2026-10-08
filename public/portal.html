@@ -360,7 +360,7 @@
     <h3>完善信息</h3>
     <label>公司名称</label><input id="er_company" placeholder="与营业执照一致" autocomplete="off" />
     <label>主体地区</label>
-    <select id="er_country"><option value="" selected>请选择地区</option><option value="中国大陆">中国大陆</option><option value="中国香港">中国香港</option><option value="其他地区">其他地区</option></select>
+    <select id="er_country"><option value="" selected>请选择地区</option><option value="CN">中国大陆</option><option value="HK">中国香港</option><option value="OTHER">其他地区</option></select>
     <div class="err" id="er_err"></div>
     <div class="mrow"><button class="primary" onclick="eRegSubmit()">完成注册</button><button class="ghost" onclick="closeModal('eRegMask')">取消</button></div>
     <div class="hint">Antom / Airwallex 在「法币」模块里连接，通道审核由 Antom / Airwallex 完成。</div>
@@ -580,7 +580,7 @@ async function loadAllData() {
     let chState = {};
     try { const cj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/channels'); chState = cj.channels_state || cj || {}; } catch(e) {}
     acct.fiat = {
-      name: m.company || m.name || '',
+      name: m.company_name || m.company || m.name || '',
       country: m.country || '',
       antom: (chState.antom && chState.antom.status === 'active') ? 'active' : 'none',
       airwallex: (chState.airwallex && chState.airwallex.status === 'active') ? 'active' : 'none',
@@ -781,10 +781,7 @@ async function eRegSubmit() {
     const j = await apiPost('/api/v1/merchants', {
       channel: 'fiat', company_name: c, country: $('er_country').value
     });
-    if (j.api_key) {
-      // 首次注册返回了 Key，只显示一次
-      alert('注册成功！你的 API Key（仅显示一次，请立即复制）：\n' + j.api_key);
-    }
+    // v21.7：注册不再自动发 Key，订阅后点按钮生成
     closeModal('eRegMask');
     await loadAllData();
     renderHeader(); renderModules();
