@@ -164,8 +164,21 @@
   .brief-card .bt { font-size:13px; opacity:.85; }
   .brief-card .bn { font-size:26px; font-weight:800; margin:6px 0; }
   .brief-card .bd { font-size:13px; opacity:.92; line-height:1.9; }
-  .brief-toggle { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--muted); }
-  .brief-toggle input { width:16px; height:16px; accent-color:var(--accent); }
+  /* v21.7：经营简报 —— 日报 / 月报 / 自定义 + 图表 + 导出 */
+  .brief-tabs { display:flex; gap:6px; margin-bottom:12px; align-items:center; flex-wrap:wrap; }
+  .btab { border:1px solid var(--border); background:#fff; border-radius:10px; padding:6px 16px; font-size:13px; font-family:inherit; color:var(--muted); cursor:pointer; transition:border-color .15s,color .15s; }
+  .btab:hover { color:var(--ink); }
+  .btab.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); font-weight:700; }
+  .brief-tabs .bp { display:none; align-items:center; gap:8px; margin-left:6px; }
+  .brief-tabs .bp.on { display:flex; }
+  .brief-tabs input { border:1px solid var(--border); border-radius:8px; padding:5px 9px; font-family:inherit; font-size:13px; color:var(--text); background:#fff; }
+  .kpi-row { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:14px; }
+  .kpi { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:10px 12px; min-width:0; }
+  .kpi .kt { font-size:11.5px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .kpi .kv { font-size:16px; font-weight:800; margin-top:3px; color:var(--ink); word-break:break-all; }
+  .kpi .kv.out { color:#c2410c; }
+  .export-btn { border:1px solid var(--border); background:#fff; border-radius:8px; padding:4px 10px; font-size:11.5px; font-family:inherit; color:var(--muted); cursor:pointer; white-space:nowrap; flex:none; }
+  .export-btn:hover { color:var(--accent); border-color:var(--accent); }
   .stat-bar { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
   .stat-bar .lb { flex:0 0 92px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .stat-bar .tr { flex:1; height:10px; background:var(--surface); border-radius:6px; overflow:hidden; }
@@ -245,6 +258,7 @@
     .plans { grid-template-columns:1fr; }
     .mrow { flex-direction:column; }
     .stat-grid { grid-template-columns:1fr; }
+    .kpi-row { grid-template-columns:1fr 1fr; }
   }
 </style>
 </head>
@@ -335,9 +349,19 @@
       <div id="f_list" style="margin-top:10px"></div>
     </div>
     <div class="sec">
-      <div class="sec-h"><h2>经营简报</h2><label class="brief-toggle"><input type="checkbox" id="briefOn" checked onchange="toggleBrief()"> 每日推送</label></div>
+      <div class="sec-h"><h2>经营简报</h2><button class="export-btn" onclick="exportBriefOrders()">⬇ 导出数据</button></div>
+      <div class="brief-tabs">
+        <button class="btab on" data-m="day" onclick="setBriefMode('day')">日报</button>
+        <button class="btab" data-m="month" onclick="setBriefMode('month')">月报</button>
+        <button class="btab" data-m="custom" onclick="setBriefMode('custom')">自定义</button>
+        <span class="bp bp-day on"><input type="date" id="bpDay" onchange="renderBrief()" /></span>
+        <span class="bp bp-month"><input type="month" id="bpMonth" onchange="renderBrief()" /></span>
+        <span class="bp bp-custom">
+          <input type="date" id="bpStart" onchange="renderBrief()" /> 至 <input type="date" id="bpEnd" onchange="renderBrief()" />
+        </span>
+      </div>
       <div id="briefBody"></div>
-      <div class="hint">每日 9:00 推送昨日经营简报（站内信）。数据来自通道同步与 Jirvs 订单，金额与笔数缺一不可。</div>
+      <div class="hint">数据来自通道同步与 Jirvs 订单。选择当日、当月或自定义区间后，右上角「导出数据」可下载该区间全部订单明细。</div>
     </div>
     <div class="sec">
       <div class="sec-h"><h2>收款统计</h2><span class="hint" style="margin:0">近 7 天 · 已支付订单</span></div>
@@ -573,6 +597,7 @@ function xformOrder(o) {
   const ch = /antom/i.test(o.gateway||'') ? 'Antom' : (/airwallex/i.test(o.gateway||'') ? 'Airwallex' : (o.gateway||''));
   const t = String(o.created_at||'').slice(0,16).replace('T',' ');
   return {id:o.order_id, ch, status:mapOrderStatus(o.status), t, amt,
+    cur:cur, amtNum:Number(o.amount||0),
     pay:o.description||'', goods:o.description||'', raw:o.status,
     log:[[t,'订单创建']]};
 }
@@ -720,18 +745,100 @@ function pickDev(isDev) {
   $('pickNoDevBody').style.display = isDev ? 'none' : 'block';
   $('pickDevBody').style.display = isDev ? 'block' : 'none';
 }
-/* ===== 经营简报 ===== */
-function renderBrief() {
-  if (!acct || !acct.fiat) { $('briefBody').innerHTML = '<div class="noreg">注册主体并产生订单后，这里会显示每日经营简报</div>'; return; }
-  const y = (acct.fOrders || []).filter((o) => o.t.startsWith('2026-10-02'));
-  const inc = y.filter((o) => o.status === '已支付').length;
-  const rf = y.filter((o) => o.status === '已退款').length;
-  const fail = y.filter((o) => o.status === '已失败').length;
-  $('briefBody').innerHTML = `<div class="brief-card"><div class="bt">昨日（10月2日）经营简报</div>
-    <div class="bn">${sumByCurStr(y, '已支付')}</div>
-    <div class="bd">收款 ${inc} 笔 · 退款 ${rf} 笔 ${sumByCurStr(y, '已退款')} · 失败 ${fail} 笔</div></div>`;
+/* ===== 经营简报：日报 / 月报 / 自定义区间 + 图表 + 导出 ===== */
+let briefMode = 'day';
+let briefOrders = null; // { name, headers, rows } 当前区间的全部订单明细，供「导出数据」按钮取数
+
+function briefPad(n) { return String(n).padStart(2, '0'); }
+function briefToday() { const d = new Date(); return d.getFullYear() + '-' + briefPad(d.getMonth() + 1) + '-' + briefPad(d.getDate()); }
+function briefAddDays(ds, n) {
+  const d = new Date(ds + 'T00:00:00'); d.setDate(d.getDate() + n);
+  return d.getFullYear() + '-' + briefPad(d.getMonth() + 1) + '-' + briefPad(d.getDate());
 }
-function toggleBrief() { toast($('briefOn').checked ? '每日简报已开启，明早 9:00 推送' : '每日简报已关闭'); }
+function briefMonthEnd(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(y, m, 0); // 第 m 月最后一天
+  return y + '-' + briefPad(m) + '-' + briefPad(d.getDate());
+}
+function setBriefMode(m) {
+  briefMode = m;
+  document.querySelectorAll('.btab').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
+  document.querySelectorAll('.brief-tabs .bp').forEach((el) => el.classList.toggle('on', el.classList.contains('bp-' + m)));
+  renderBrief();
+}
+function briefInitDefaults() {
+  // 默认值取「数据里最近有订单的一天」，适配真实数据；无数据时回退今天
+  const latest = (acct.fOrders || []).map((o) => (o.t || '').slice(0, 10)).filter(Boolean).sort().pop() || briefToday();
+  if (!$('bpDay').value) $('bpDay').value = latest;
+  if (!$('bpMonth').value) $('bpMonth').value = latest.slice(0, 7);
+  if (!$('bpStart').value) $('bpStart').value = briefAddDays(latest, -6);
+  if (!$('bpEnd').value) $('bpEnd').value = latest;
+}
+// 通用 CSV 导出（带 BOM + 引号转义，Excel 可直接打开）
+function exportCSV(name, headers, rows) {
+  const q = (c) => '"' + String(c == null ? '' : c).replace(/"/g, '""') + '"';
+  const csv = [headers.map(q).join(',')].concat(rows.map((r) => r.map(q).join(','))).join('\r\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name + '.csv';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+}
+// 导出当前区间（当日 / 当月 / 自定义）的全部订单明细
+function exportBriefOrders() {
+  if (!briefOrders || !briefOrders.rows.length) { toast('当前区间暂无可导出的订单'); return; }
+  exportCSV(briefOrders.name, briefOrders.headers, briefOrders.rows);
+  toast('已导出 ' + briefOrders.rows.length + ' 条订单');
+}
+function renderBrief() {
+  if (!acct || !acct.fiat) { briefOrders = null; $('briefBody').innerHTML = '<div class="noreg">注册主体并产生订单后，这里会显示经营简报</div>'; return; }
+  briefInitDefaults();
+  const orders = acct.fOrders || [];
+
+  // 1) 解析区间（日报 = 当天；月报 = 整月；自定义 = 起止区间）
+  let start, end, title;
+  if (briefMode === 'day') {
+    start = end = $('bpDay').value;
+    title = dLabel(start);
+  } else if (briefMode === 'month') {
+    const ym = $('bpMonth').value;
+    start = ym + '-01'; end = briefMonthEnd(ym);
+    title = ym.replace('-', ' 年 ') + ' 月';
+  } else {
+    start = $('bpStart').value; end = $('bpEnd').value;
+    if (start > end) { const t = start; start = end; end = t; }
+    title = start + ' ~ ' + end;
+  }
+
+  // 2) 区间内订单
+  const inR = orders.filter((o) => { const d = (o.t || '').slice(0, 10); return d >= start && d <= end; });
+  const paid = inR.filter((o) => o.status === '已支付');
+  const refund = inR.filter((o) => o.status === '已退款');
+  const failed = inR.filter((o) => o.status === '已失败');
+
+  // 3) 缓存导出数据：当前区间全部订单明细（按时间倒序），供右上角「导出数据」使用
+  const tag = (briefMode === 'day') ? start : start + '_' + end;
+  briefOrders = {
+    name: '订单明细_' + tag,
+    headers: ['下单时间', '订单号', '金额', '币种', '支付方式', '收单机构', '状态', '通道原始状态'],
+    rows: inR.slice().sort((a, b) => (a.t < b.t ? 1 : -1))
+      .map((o) => [o.t, o.id, o.amtNum, o.cur, o.pay, o.ch, o.status, o.raw]),
+  };
+
+  // 4) KPI
+  const kpi = `<div class="kpi-row">
+    <div class="kpi"><div class="kt">收款金额</div><div class="kv">${sumByCurStr(inR, '已支付')}</div></div>
+    <div class="kpi"><div class="kt">收款笔数</div><div class="kv">${paid.length}</div></div>
+    <div class="kpi"><div class="kt">退款笔数</div><div class="kv out">${refund.length}</div></div>
+    <div class="kpi"><div class="kt">失败笔数</div><div class="kv out">${failed.length}</div></div>
+  </div>`;
+
+  $('briefBody').innerHTML = `<div class="brief-card"><div class="bt">${esc(title)} 经营简报</div>
+      <div class="bn">${sumByCurStr(inR, '已支付')}</div>
+      <div class="bd">收款 ${paid.length} 笔 · 退款 ${refund.length} 笔 ${sumByCurStr(inR, '已退款')} · 失败 ${failed.length} 笔</div>
+    </div>` + kpi;
+}
 /* ===== v21.7：国家代码 → 中文名 ===== */
 function countryName(c) {
   const m = { CN: '中国大陆', HK: '中国香港', SG: '新加坡', OTHER: '其他地区' };
