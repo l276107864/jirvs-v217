@@ -172,8 +172,25 @@ function openDb() {
       signed_at TEXT DEFAULT '',
       sign_ip TEXT DEFAULT '',
       contract_ver TEXT NOT NULL DEFAULT 'V1',
+      email TEXT DEFAULT '',
+      password_hash TEXT DEFAULT '',
+      ref_code TEXT DEFAULT '',
       created_at TEXT NOT NULL
     );
+    `);
+  // v21.7 migration: partner login columns for existing DBs
+  try { db.exec(`ALTER TABLE partners ADD COLUMN email TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
+  try { db.exec(`ALTER TABLE partners ADD COLUMN password_hash TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
+  try { db.exec(`ALTER TABLE partners ADD COLUMN ref_code TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
+  try { db.exec(`ALTER TABLE partners ADD COLUMN rate INTEGER DEFAULT 30`); } catch { /* 列已存在 */ }
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS partner_sessions (
+      token TEXT PRIMARY KEY,
+      partner_id TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+  `);
+  db.exec(`
     CREATE TABLE IF NOT EXISTS commissions (
       id TEXT PRIMARY KEY,
       partner_id TEXT NOT NULL,

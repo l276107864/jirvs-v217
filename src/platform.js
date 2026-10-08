@@ -158,6 +158,33 @@ function createPlatform() {
     const a = db.prepare('SELECT id, email, role FROM admins WHERE id = ?').get(s.admin_id);
     return a || null;
   }
+  // v21.7: 生态合作伙伴登录（独立会话，与商户/管理员隔离）
+  function verifyPartner(email, password) {
+    const pt = db.prepare('SELECT * FROM partners WHERE email = ?').get(String(email || '').trim().toLowerCase());
+    if (!pt || !pt.password_hash) throw new Error('邮箱或密码不正确');
+    if (!verifyPassword(password, pt.password_hash)) throw new Error('邮箱或密码不正确');
+    return pt;
+  }
+  function createPartnerSession(partner_id, ttlHours = 24) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const expires_at = new Date(Date.now() + ttlHours * 3600 * 1000).toISOString();
+    db.prepare('INSERT INTO partner_sessions (token, partner_id, expires_at) VALUES (?, ?, ?)')
+      .run(token, partner_id, expires_at);
+    return { token, expires_at };
+  }
+  function getPartnerSessionPartner(token) {
+    if (!token) return null;
+    const s = db.prepare('SELECT * FROM partner_sessions WHERE token = ?').get(token);
+    if (!s || s.expires_at < now()) {
+      if (s) db.prepare('DELETE FROM partner_sessions WHERE token = ?').run(token);
+      return null;
+    }
+    const pt = db.prepare('SELECT id, name, type, email, phone, contract_ver, rate, ref_code, sign_status, contract_no, signed_at FROM partners WHERE id = ?').get(s.partner_id);
+    return pt || null;
+  }
+  function deletePartnerSession(token) {
+    if (token) db.prepare('DELETE FROM partner_sessions WHERE token = ?').run(token);
+  }
   function deleteAdminSession(token) {
     db.prepare('DELETE FROM admin_sessions WHERE token = ?').run(token);
   }
@@ -796,6 +823,8 @@ function createPlatform() {
     recordRefund, fundsOverview,
     // v21.6 总后台
     createAdmin, verifyAdmin, listAdmins, createAdminSession, getAdminSessionAdmin, deleteAdminSession,
+    verifyPartner, createPartnerSession, getPartnerSessionPartner, deletePartnerSession,
+    hashPassword,
     createAdminDirect, deleteAdmin, changeAdminPassword, logAdmin, listAdminLogs, ensureSeedAdmin,
     adminOverview, adminListMerchants, adminListOrders, adminProfit, adminNotifications,
     db, // v21.7 生态合作直接访问

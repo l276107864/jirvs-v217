@@ -987,6 +987,14 @@ app.post('/api/v1/merchants', requireAuth, async (req, res) => {
     }
     platform.assertOwnMerchant(req.user.id, mid);
     const profile = platform.saveChannelDraft(mid, channel, { name, country });
+    // v21.7: 推荐码 -> 绑定伙伴
+    const refCode = String(body.ref_code || '').trim().toUpperCase();
+    if (refCode) {
+      const partner = platform.db.prepare('SELECT id FROM partners WHERE ref_code = ?').get(refCode);
+      if (partner) {
+        platform.db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?").run(partner.id, mid);
+      }
+    }
     const out = {
       merchant_id: mid, channel, status: profile.status, profile,
       channels_state: platform.getChannelState(mid),
@@ -1021,6 +1029,13 @@ app.get('/api/v1/merchants', requireAuth, (req, res) => {
 });
 
 // 查询商户（登录后只看自己的；不返回 API key）
+app.patch('/api/v1/merchants/:id', requireAuth, requireOwnMerchant, async (req, res) => {
+  const { country } = req.body || {};
+  if (country && ['CN','HK','OTHER'].includes(country)) {
+    platform.db.prepare('UPDATE merchants SET country = ? WHERE merchant_id = ?').run(country, req.params.id);
+  }
+  res.json({ ok: true });
+});
 app.get('/api/v1/merchants/:id', requireAuth, requireOwnMerchant, async (req, res) => {
   try {
     res.json(platform.getMerchant(req.params.id));
@@ -1337,6 +1352,113 @@ app.post('/api/admin/partners/:id/payout', requireAdmin, (req, res) => {
     if (!r) return res.status(400).json({ error: '无可打款佣金（可能在金库中或已解约）' });
     platform.logAdmin(req.admin.email, '执行打款', req.params.id, `批次 ${batch_date}，$${r.amount}`);
     res.json({ ok: true, ...r });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+// ================= v21.7：生态合作伙伴自助 /api/partner/* =================
+// 伙伴会话 Cookie（jirvs_partner，与商户/管理员隔离）
+function getPartnerToken(req) {
+  const cookie = req.headers.cookie || '';
+  const m = cookie.match(/(?:^|;\s*)jirvs_partner=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+function setPartnerCookie(req, res, token, expires_at) {
+  const exp = new Date(expires_at).toUTCString();
+  const secure = isSecureReq(req) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `jirvs_partner=${encodeURIComponent(token)}; Path=/; Expires=${exp}; HttpOnly; SameSite=Lax${secure}`);
+}
+function clearPartnerCookie(req, res) {
+  const secure = isSecureReq(req) ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `jirvs_partner=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; HttpOnly; SameSite=Lax${secure}`);
+}
+function requirePartner(req, res, next) {
+  const pt = platform.getPartnerSessionPartner(getPartnerToken(req));
+  if (!pt) return res.status(401).json({ error: '需要伙伴登录' });
+  req.partner = pt;
+  next();
+}
+// 伙伴登录
+app.post('/api/partner/login', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const pt = platform.verifyPartner(email, password);
+    const sess = platform.createPartnerSession(pt.id);
+    setPartnerCookie(req, res, sess.token, sess.expires_at);
+    res.json({ ok: true, partner: { id: pt.id, name: pt.name, email: pt.email } });
+  } catch (e) { res.status(401).json({ error: e.message }); }
+});
+app.post('/api/partner/logout', (req, res) => {
+  platform.deletePartnerSession(getPartnerToken(req));
+  clearPartnerCookie(req, res);
+  res.json({ ok: true });
+});
+// 伙伴看自己：资料 + 佣金汇总（只显示自己的比例，不泄露对方）
+app.get('/api/partner/me', requirePartner, (req, res) => {
+  const db = platform.db;
+  const p = db.prepare('SELECT id, name, type, email, phone, contract_ver, rate, ref_code, sign_status, contract_no, signed_at, bank_account, credit_code, legal_name FROM partners WHERE id = ?').get(req.partner.id);
+  if (!p) return res.status(404).json({ error: '伙伴不存在' });
+  const summary = eco.partnerSummary(db, p.id) || {};
+  // 推荐商户数
+  const mCount = db.prepare('SELECT COUNT(*) AS c FROM merchants WHERE partner_id = ?').get(p.id);
+  res.json({
+    partner: {
+      id: p.id, name: p.name, type: p.type, email: p.email, phone: p.phone,
+      contract_ver: p.contract_ver, rate: p.rate, ref_code: p.ref_code,
+      sign_status: p.sign_status, contract_no: p.contract_no, signed_at: p.signed_at,
+      bank_account: p.bank_account,
+    },
+    stats: {
+      merchants: mCount ? mCount.c : 0,
+      pending: summary.pending || 0,
+      pendingCount: summary.pendingCount || 0,
+      paid: summary.paid || 0,
+      paidCount: summary.paidCount || 0,
+    },
+  });
+});
+// 伙伴看自己的佣金明细
+app.get('/api/partner/commissions', requirePartner, (req, res) => {
+  const db = platform.db;
+  const rows = db.prepare(
+    `SELECT c.*, m.company AS merchant_name FROM commissions c
+     LEFT JOIN merchants m ON m.merchant_id = c.merchant_id
+     WHERE c.partner_id = ? ORDER BY c.created_at DESC LIMIT 200`
+  ).all(req.partner.id);
+  res.json({ commissions: rows });
+});
+// 伙伴看自己的打款记录
+app.get('/api/partner/payouts', requirePartner, (req, res) => {
+  const db = platform.db;
+  const rows = db.prepare('SELECT * FROM payouts WHERE partner_id = ? ORDER BY created_at DESC LIMIT 50').all(req.partner.id);
+  res.json({ payouts: rows });
+});
+// 新伙伴注册（创建账号 + 签署协议一次完成）
+app.post('/api/partner/signup', async (req, res) => {
+  try {
+    const db = platform.db;
+    const b = req.body || {};
+    const email = String(b.email || '').trim().toLowerCase();
+    const password = String(b.password || '');
+    const name = String(b.name || '').trim();
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: '邮箱格式不正确' });
+    if (!password || password.length < 6) return res.status(400).json({ error: '密码至少 6 位' });
+    if (!name) return res.status(400).json({ error: '名称必填' });
+    const exists = db.prepare('SELECT id FROM partners WHERE email = ?').get(email);
+    if (exists) return res.status(400).json({ error: '该邮箱已注册' });
+    const id = eco.uid('p');
+    const now = eco.nowBJ();
+    const refCode = ('P' + id.replace(/\D/g, '').slice(-6)).toUpperCase() || ('P' + Date.now().toString().slice(-6));
+    const hashPassword = platform.hashPassword;
+    db.prepare(`INSERT INTO partners
+      (id, name, type, email, password_hash, phone, legal_name, bank_account, credit_code,
+       sign_status, contract_no, signed_at, sign_ip, contract_ver, rate, ref_code, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, name, b.type || 'personal', email, password, b.phone || '', b.legal_name || '',
+        b.bank_account || '', b.credit_code || '', 'signed',
+        b.contract_no || ('ECO-' + new Date().getFullYear() + '-' + String(Math.floor(Math.random() * 9000) + 1000)),
+        now, req.ip || '', 'V1', 30, refCode, now);
+    const sess = platform.createPartnerSession(id);
+    setPartnerCookie(req, res, sess.token, sess.expires_at);
+    res.json({ ok: true, id, ref_code: refCode });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 // v21.7 订阅（商户向 Jirvs 付费）
