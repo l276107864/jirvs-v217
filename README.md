@@ -7,9 +7,10 @@ Jirvs 是面向跨境电商商户的收款集成软件。平台只提供软件�
 - **仅支持法币收款**；稳定币、虚拟资产和链上收款已下线。
 - 法币机构：**Antom + Airwallex**。机构侧完成 KYB 后回 Jirvs 门户绑定。
 - 通道真实联调完成前保持 `pending`，不会伪装成可收款状态。
-- 无有效邀请码：**USD 299 终身**；有效推荐归因在 30 天内订阅：**USD 199 终身**。
+- 无推荐码：**USD 299 终身**；支付下单时提交有效推荐码或推荐链接中的 `ref`：**USD 199 终身**。不在注册时锁定归因，始终以本次支付时最新提交的推荐码为准。
 - 商户注册一次性返回 `jk_live_`（插件/服务端）和 `jk_pub_`（公开 JS）两把 Key；服务端只存哈希，轮换后旧 Key 立即失效。
 - 伙伴佣金：V1 30%、V2 50%，按签约版本快照一次性返佣，每月 5 日结算上月佣金。
+- 订阅支付先创建 `pending` 记录。支付机构确认后调用 `POST /webhooks/subscriptions/:provider`，携带 HMAC-SHA256 `x-jirvs-signature` 和如下 JSON：`{"event":"payment.succeeded","event_id":"evt_1","subscription_id":"sub_x","payment_id":"pay_x","amount":199,"currency":"USD"}`。服务端会校验金额/币种、幂等处理、激活订阅并只生成一次佣金。
 
 ## 本地运行
 
@@ -28,7 +29,7 @@ npm start
 npm test
 ```
 
-测试覆盖法币-only门禁、双 Key、订阅报价、pending 订阅和推荐归因基础逻辑。
+测试覆盖法币-only门禁、双 Key、订阅报价、pending 订阅、最新推荐码和支付回调幂等激活/计佣。
 
 ## 生产前置条件
 

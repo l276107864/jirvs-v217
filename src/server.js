@@ -189,6 +189,36 @@ app.post('/webhooks/nowpayments/:merchant_id', express.raw({ type: 'application/
   }
 });
 
+// 订阅支付回调：支付机构先把原始 JSON 用 SUBSCRIPTION_WEBHOOK_SECRET 做 HMAC-SHA256，
+// 放入 x-jirvs-signature；回调成功后才激活订阅和生成一次佣金。
+app.post('/webhooks/subscriptions/:provider', express.raw({ type: 'application/json' }), (req, res) => {
+  try {
+    const secret = process.env.SUBSCRIPTION_WEBHOOK_SECRET;
+    if (!secret) return res.status(503).json({ error: '订阅回调未配置签名密钥' });
+    const raw = req.body.toString();
+    const expected = crypto.createHmac('sha256', secret).update(raw).digest('hex');
+    const actual = String(req.headers['x-jirvs-signature'] || '').replace(/^sha256=/, '');
+    if (!actual || actual.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected))) {
+      return res.status(400).json({ error: '订阅回调签名校验失败' });
+    }
+    const body = JSON.parse(raw);
+    const eventType = String(body.event || body.type || '').toLowerCase();
+    if (!['payment.succeeded', 'payment_succeeded', 'succeeded', 'paid'].includes(eventType)) {
+      return res.json({ received: true, ignored: true, event: eventType });
+    }
+    const result = eco.activateSubscription(platform.db, {
+      subscriptionId: body.subscription_id || body.subscriptionId,
+      paymentId: body.payment_id || body.paymentId,
+      amount: Number(body.amount),
+      currency: String(body.currency || 'USD').toUpperCase(),
+      eventId: body.event_id || body.eventId || `${req.params.provider}:${body.payment_id || body.paymentId}:${eventType}`,
+    });
+    res.json({ received: true, provider: req.params.provider, ...result });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: false })); // 沙盒模拟开户页表单
 // v21.6: 总后台页面（管理员登录态由前端 JS 检查，未登录显示登录页）
@@ -365,13 +395,8 @@ function requireSuperAdmin(req, res, next) {
 // 账号注册：一个邮箱即可（v20：Jirvs 注册就是一个邮箱+密码）
 app.post('/api/v1/auth/register', async (req, res) => {
   try {
-    const { email, password, ref_code } = req.body || {};
+    const { email, password } = req.body || {};
     const user = platform.createUser({ email, password });
-    const ref = String(ref_code || '').trim().toUpperCase();
-    if (ref) {
-      const partner = platform.db.prepare("SELECT ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(ref);
-      if (partner) platform.db.prepare('UPDATE users SET referral_code = ?, referral_captured_at = ? WHERE id = ?').run(ref, new Date().toISOString(), user.id);
-    }
     const sess = platform.createSession(user.id);
     setSessionCookie(req, res, sess.token, sess.expires_at);
     res.json({ user, expires_at: sess.expires_at });
@@ -997,14 +1022,6 @@ app.post('/api/v1/merchants', requireAuth, async (req, res) => {
     }
     platform.assertOwnMerchant(req.user.id, mid);
     const profile = platform.saveChannelDraft(mid, channel, { name, country });
-    // v21.7: 推荐码 -> 绑定伙伴
-    const refCode = String(body.ref_code || '').trim().toUpperCase();
-    if (refCode) {
-      const partner = platform.db.prepare('SELECT id FROM partners WHERE ref_code = ?').get(refCode);
-      if (partner) {
-        platform.db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?").run(partner.id, mid);
-      }
-    }
     const out = {
       merchant_id: mid, channel, status: profile.status, profile,
       channels_state: platform.getChannelState(mid),
@@ -1213,22 +1230,30 @@ app.get('/api/v1/subscriptions/status', requireAuth, (req, res) => {
     if (!merchants.length) return res.json({ active: false, subscription: null, merchant_id: null });
     const mid = merchants[0].merchant_id;
     const sub = db.prepare(
-      `SELECT * FROM subscriptions WHERE merchant_id = ? AND status = 'active' ORDER BY paid_at DESC LIMIT 1`
+      `SELECT * FROM subscriptions WHERE merchant_id = ? AND status IN ('active', 'pending') ORDER BY created_at DESC LIMIT 1`
     ).get(mid);
-    if (!sub) return res.json({ active: false, subscription: null, merchant_id: mid });
-    res.json({ active: true, subscription: sub, merchant_id: mid });
+    if (!sub) return res.json({ active: false, pending: false, subscription: null, merchant_id: mid });
+    res.json({ active: sub.status === 'active', pending: sub.status === 'pending', subscription: sub, merchant_id: mid });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // 订阅报价与真实支付状态机：无邀请码 $299，有效邀请码 $199。
+function latestReferral(req) {
+  const raw = req.query.ref_code || req.query.referral_code || req.query.ref || '';
+  const body = req.body || {};
+  const code = String(body.ref_code || body.referral_code || raw).trim().toUpperCase();
+  if (!code) return null;
+  const partner = platform.db.prepare("SELECT id, ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(code);
+  return partner || null;
+}
+
 app.get('/api/v1/subscriptions/quote', requireAuth, (req, res) => {
   const ms = platform.listMerchants(req.user.id);
   if (!ms.length) return res.status(400).json({ error: '请先注册商户主体' });
-  const u = platform.db.prepare('SELECT referral_code, referral_captured_at FROM users WHERE id = ?').get(req.user.id) || {};
-  const valid = u.referral_code && u.referral_captured_at && Date.now() - new Date(u.referral_captured_at).getTime() <= 30 * 86400000;
-  res.json({ plan: 'lifetime', currency: 'USD', amount: valid ? 199 : 299, referral: valid ? u.referral_code : null });
+  const partner = latestReferral(req);
+  res.json({ plan: 'lifetime', currency: 'USD', amount: partner ? 199 : 299, referral_code: partner ? partner.ref_code : null });
 });
 
 app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
@@ -1238,17 +1263,22 @@ app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
     if (!merchants.length) return res.status(400).json({ error: '请先注册商户主体' });
     const mid = merchants[0].merchant_id;
     const exist = db.prepare(
-      `SELECT id FROM subscriptions WHERE merchant_id = ? AND status = 'active' LIMIT 1`
+      `SELECT id, status FROM subscriptions WHERE merchant_id = ? AND status IN ('active', 'pending') LIMIT 1`
     ).get(mid);
     if (exist) return res.status(400).json({ error: '已订阅，无需重复购买' });
     const now = eco.nowBJ();
     const id = eco.uid('sub');
     // v21.7：终身订阅，无到期
-    const u = db.prepare('SELECT referral_code, referral_captured_at FROM users WHERE id = ?').get(req.user.id) || {};
-    const valid = u.referral_code && u.referral_captured_at && Date.now() - new Date(u.referral_captured_at).getTime() <= 30 * 86400000;
-    const amount = valid ? 199 : 299;
-    db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?)` ).run(id, mid, amount, now);
-    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, status: 'pending', message: '请完成 Antom/Airwallex 订阅付款；支付回调确认后才会开通。' });
+    const partner = latestReferral(req);
+    const amount = partner ? 199 : 299;
+    if (partner) {
+      // 最新一次有效推荐码覆盖此前推荐关系；不在注册时锁定归因。
+      db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?").run(partner.id, mid);
+    } else {
+      db.prepare("UPDATE merchants SET partner_id = '', referred_at = '' WHERE merchant_id = ?").run(mid);
+    }
+    db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, referral_code, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?, ?)` ).run(id, mid, amount, partner ? partner.ref_code : '', now);
+    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, referral_code: partner ? partner.ref_code : null, status: 'pending', message: '请完成 Antom/Airwallex 订阅付款；支付机构回调确认后才会开通并计佣。' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -165,11 +165,20 @@ function openDb() {
       status TEXT NOT NULL DEFAULT 'active',
       paid_at TEXT NOT NULL,
       expires_at TEXT NOT NULL,
+      referral_code TEXT DEFAULT '',
+      payment_id TEXT DEFAULT '',
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_sub_merchant ON subscriptions(merchant_id);
     CREATE INDEX IF NOT EXISTS idx_sub_status ON subscriptions(status);
   `);
+  for (const ddl of [
+    `ALTER TABLE subscriptions ADD COLUMN referral_code TEXT DEFAULT ''`,
+    `ALTER TABLE subscriptions ADD COLUMN payment_id TEXT DEFAULT ''`,
+  ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
+  db.exec(`CREATE TABLE IF NOT EXISTS subscription_webhook_events (
+    event_id TEXT PRIMARY KEY, received_at TEXT NOT NULL
+  );`);
   // v21.7：生态合作伙伴
   db.exec(`
     CREATE TABLE IF NOT EXISTS partners (

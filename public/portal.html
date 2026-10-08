@@ -416,10 +416,13 @@
   <div class="modal">
     <h3>订阅 Jirvs</h3>
     <div id="subStatus" style="font-size:13px;color:var(--muted);line-height:1.8"></div>
+    <label for="subRefCode">推荐码（可选）</label>
+    <input id="subRefCode" placeholder="填写最新推荐码，或通过推荐链接自动带入" autocomplete="off" />
+    <div class="hint">支付时提交的最新推荐码生效；无固定归因期限。有效推荐码价格为 $199，否则为 $299。</div>
     <div class="plans">
-      <div class="plan on"><span class="tag">终身</span><span class="p">$199</span> <span class="u">一次付清</span><div class="u" style="margin-top:6px">终身使用 · 无月费 · 无续费</div></div>
+      <div class="plan on"><span class="tag">终身</span><span class="p">$299 / $199</span> <span class="u">一次付清</span><div class="u" style="margin-top:6px">无推荐码 $299 · 有效推荐码 $199 · 无月费 · 无续费</div></div>
     </div>
-    <div class="mrow"><button class="primary" id="subBuyBtn" onclick="buySub()">立即订阅 $199</button></div>
+    <div class="mrow"><button class="primary" id="subBuyBtn" onclick="buySub()">创建订阅订单</button></div>
     <div class="disclaimer">订阅说明：
 本服务为数字化 SaaS 许可，一次付费、终身使用，购买后不支持退款。</div>
     <div class="mrow"><button class="ghost" style="flex:1" onclick="closeModal('subMask')">取消</button></div>
@@ -638,7 +641,8 @@ async function loadAllData() {
     const sj = await apiGet('/api/v1/subscriptions/status');
     acct.sub = sj.active
       ? {st:'active', plan:'lifetime', until:'终身', autorenew:false}
-      : {st:'none', plan:'', until:'', autorenew:false};
+      : (sj.pending ? {st:'pending', plan:'lifetime', until:'待支付确认', autorenew:false}
+      : {st:'none', plan:'', until:'', autorenew:false});
   } catch(e) { acct.sub = {st:'none', plan:'', until:'', autorenew:false}; }
   // 订单
   try {
@@ -991,12 +995,13 @@ async function eRegSubmit() {
 /* ===== 订阅 ===== */
 let pick = 'month';
 function openSub() {
-  // v21.7：$199 终身，无月付/年付
+  const linkRef = new URLSearchParams(location.search).get('ref') || new URLSearchParams(location.search).get('ref_code') || '';
+  if (linkRef && !$('subRefCode').value) $('subRefCode').value = linkRef.toUpperCase();
   $('subStatus').innerHTML = acct.sub.st === 'active'
-    ? '当前订阅：<b>$199 终身</b> · 永久有效'
-    : '订阅后即可生成 API Key（jk_live_）与 JS 公开 Key（jk_pub_），正式开始收款。';
-  $('subBuyBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : '立即订阅 $199';
-  $('subBuyBtn').disabled = acct.sub.st === 'active';
+    ? '当前订阅：<b>终身</b> · 永久有效'
+    : (acct.sub.pending ? '订阅订单已创建，等待支付机构确认。确认前不会激活订阅或计佣。' : '填写最新推荐码后创建订单；支付成功并收到机构回调才会激活订阅。');
+  $('subBuyBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : (acct.sub.pending ? '等待支付确认' : '创建订阅订单');
+  $('subBuyBtn').disabled = acct.sub.st === 'active' || acct.sub.pending;
   $('subMask').classList.add('open');
 }
 async function buySub() {
@@ -1004,13 +1009,14 @@ async function buySub() {
   const btn = $('subBuyBtn');
   btn.disabled = true; btn.textContent = '处理中…';
   try {
-    await apiPost('/api/v1/subscriptions/checkout', {});
+    const refCode = $('subRefCode').value.trim();
+    const result = await apiPost('/api/v1/subscriptions/checkout', refCode ? { ref_code: refCode } : {});
     await loadAllData();
     closeModal('subMask');
     renderHeader();
     if (pendingKey) {
       const kind = pendingKey; pendingKey = null;
-      toast('订阅成功，继续生成 Key');
+      toast('订阅订单已创建，等待支付确认');
       $('intSec').classList.add('open');
       pickDev(kind === 'pub');
       renderKeys();
@@ -1021,9 +1027,9 @@ async function buySub() {
         setTimeout(() => el.classList.remove('flash'), 2400);
       }, 150);
     }
-    else toast('订阅成功（$199 终身）');
+    else toast(result.status === 'pending' ? '订阅订单已创建，支付确认后自动开通' : '订阅状态已更新');
   } catch(err) {
-    btn.disabled = false; btn.textContent = '立即订阅 $199';
+    btn.disabled = false; btn.textContent = '创建订阅订单';
     alert(err.message);
   }
 }
