@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Jirvs 收银台测试</title>
+<style>
+  :root { --bg:#0b0f1a; --card:#131a2b; --border:#24304d; --text:#e8edf7; --muted:#8b96b3; --accent:#4f7cff; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .wrap { width:100%; max-width:440px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:28px; }
+  h1 { font-size:20px; margin:0 0 8px; }
+  .note { font-size:13px; color:var(--muted); line-height:1.8; margin:0 0 20px; padding:10px 12px; border:1px dashed var(--border); border-radius:8px; }
+  .row { display:flex; justify-content:space-between; align-items:center; font-size:14px; padding:10px 0; border-bottom:1px solid var(--border); }
+  .row span { color:var(--muted); }
+  .paybtn { width:100%; margin-top:22px; background:var(--accent); color:#fff; border:0; border-radius:8px; padding:14px; font-size:16px; cursor:pointer; }
+  .paybtn:disabled { opacity:.5; cursor:not-allowed; }
+  .err { color:#f87171; font-size:13px; margin-top:12px; min-height:18px; line-height:1.6; }
+  .err a { color:var(--accent); }
+  .hint { font-size:13px; color:var(--muted); margin-top:14px; line-height:1.8; }
+  .hint a { color:var(--accent); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Jirvs 收银台测试</h1>
+    <div class="note">这是测试工具，顾客看不到这一页。<br>顾客看到的界面从「收银台」开始——点下面按钮进去看到的，就是顾客看到的。</div>
+    <div class="row"><span>测试商户</span><b id="mName">加载中…</b></div>
+    <div class="row"><span>测试金额</span><b>USD 88.00</b></div>
+    <div class="err" id="err"></div>
+    <button class="paybtn" id="go" disabled>模拟顾客点「去结算」→ 进入收银台</button>
+    <div class="hint">商户在<a href="/portal.html">商户门户</a>入驻并完成企业验证后，才能在这里测试。测试页默认用第一个可收款的商户。</div>
+  </div>
+</div>
+<script>
+(async () => {
+  const err = document.getElementById('err');
+  const go = document.getElementById('go');
+  const nameEl = document.getElementById('mName');
+  let mid = null;
+  try {
+    const r = await fetch('/api/v1/merchants');
+    const list = await r.json();
+    // v21.2: 只取第一个有绿勾通道的商户（法币 active 或 稳定币 active）
+    const m = (list || []).find((x) => {
+      const st = x.channels_state || {};
+      return (st.fiat && st.fiat.status === 'active') || (st.stable && st.stable.status === 'active');
+    });
+    if (!m) {
+      nameEl.textContent = '暂无';
+      err.innerHTML = '暂无已开通通道的商户，请先去 <a href="/portal.html">商户门户</a> 注册通道并验证通过（拿到绿勾）。';
+      return;
+    }
+    mid = m.merchant_id;
+    nameEl.textContent = m.company || mid;
+    go.disabled = false;
+  } catch (e) {
+    nameEl.textContent = '—';
+    err.textContent = '服务未启动或网络异常，请确认终端里 npm start 还在跑。';
+    return;
+  }
+  go.onclick = async () => {
+    go.disabled = true;
+    go.textContent = '正在进入收银台…';
+    err.textContent = '';
+    try {
+      const r = await fetch('/api/v1/checkout/sessions', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          merchant_id: mid,
+          order_id: 'test-' + Date.now(),
+          amount: 88,
+          currency: 'usd',
+          description: '收银台测试订单'
+        })
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || '创建收银台会话失败');
+      location.href = d.checkout_url; // 跳进 Jirvs 托管收银台——这才是顾客界面
+    } catch (e) {
+      err.textContent = e.message;
+      go.disabled = false;
+      go.textContent = '模拟顾客点「去结算」→ 进入收银台';
+    }
+  };
+})();
+</script>
+</body>
+</html>

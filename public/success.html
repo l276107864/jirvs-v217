@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>支付成功 · Jirvs</title>
+<style>
+  /* v20: Jirvs 品牌色 */
+  :root { --bg:#f8f9fb; --card:#ffffff; --border:#e2e8f0; --text:#0e1420; --muted:#718096; --accent:#3d8b85; --ok:#16a34a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; min-height:100vh; min-height:100dvh; display:flex; align-items:center; justify-content:center; padding:24px; }
+  .wrap { width:100%; max-width:480px; }
+  .brand { text-align:center; font-size:20px; font-weight:700; margin-bottom:14px; }
+  .brand .j { color:var(--accent); }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:32px 28px; text-align:center; }
+  .check { width:64px; height:64px; border-radius:50%; background:rgba(22,163,74,.1); border:2px solid var(--ok); color:var(--ok); font-size:32px; display:flex; align-items:center; justify-content:center; margin:0 auto 16px; }
+  h1 { margin:0 0 6px; font-size:22px; }
+  .amt { font-size:30px; font-weight:700; margin:10px 0 4px; }
+  .sub { color:var(--muted); font-size:13px; margin-bottom:18px; }
+  .rows { text-align:left; border-top:1px solid var(--border); margin-top:6px; padding-top:6px; }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--border); font-size:13px; }
+  .row:last-child { border-bottom:0; }
+  .row .k { color:var(--muted); }
+  .row .v { word-break:break-all; text-align:right; font-family:monospace; font-size:12px; }
+  .btns { display:flex; gap:10px; margin-top:22px; }
+  .btns a { flex:1; text-align:center; border-radius:8px; padding:12px; font-size:14px; text-decoration:none; }
+  .primary { background:var(--accent); color:#fff; font-weight:600; }
+  .note { margin-top:16px; font-size:11.5px; color:var(--muted); line-height:1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><span class="j">Jirvs</span> 支付</div>
+  <div class="card">
+    <div class="check">✓</div>
+    <h1>支付成功</h1>
+    <div class="amt" id="amt">—</div>
+    <div class="sub" id="railNote">正在确认交易详情…</div>
+    <div class="rows" id="rows"></div>
+    <div class="btns" id="btns">
+      <a class="primary" id="backBtn" href="javascript:history.back()">返回商家</a>
+    </div>
+    <div class="note" id="countNote" style="display:none">3 秒后自动返回商家…</div>
+    <div class="note" id="note">安全支付由持牌机构提供 · 技术支持 Jirvs</div>
+  </div>
+</div>
+<script>
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const sid = q.get('session_id'), rail = q.get('rail'), methodParam = q.get('method');
+  // v20: 回跳地址由收银台带过来（商家建会话时定的 success_url）；没带就不自动跳，
+  // "返回商家"按钮用浏览器返回（回到商户自己的网站），不再默认指向开发者调试页。
+  let returnUrl = q.get('return_url') || '';
+  if (returnUrl) {
+    try {
+      const u = new URL(returnUrl, location.origin);
+      // 只允许跳回本站或 javascript:history.back()，防钓鱼
+      returnUrl = (u.origin === location.origin) ? (u.pathname + u.search + u.hash) : '';
+    } catch { returnUrl = ''; }
+  }
+  const backBtn = document.getElementById('backBtn');
+  if (returnUrl && returnUrl !== 'javascript:history.back()') {
+    backBtn.href = returnUrl;
+    // 商家给了明确回跳地址：3 秒倒计时自动返回
+    const note = document.getElementById('countNote');
+    note.style.display = '';
+    let n = 3;
+    const timer = setInterval(() => {
+      n -= 1;
+      if (n <= 0) { clearInterval(timer); location.href = returnUrl; return; }
+      note.textContent = n + ' 秒后自动返回商家…';
+    }, 1000);
+  }
+  const railTxt = methodParam || (rail === 'stablecoin' ? '稳定币' : '银行卡');
+  try {
+    let s = null;
+    if (sid) {
+      const r = await fetch('/api/v1/checkout/sessions/' + sid);
+      if (r.ok) s = await r.json();
+    }
+    const amount = s ? (s.currency || '').toUpperCase() + ' ' + s.amount : '';
+    document.getElementById('amt').textContent = amount || '—';
+    document.getElementById('railNote').textContent = '通过' + railTxt + '完成';
+    const rows = [
+      ['订单号', s && s.order_id], ['支付方式', railTxt],
+    ].filter(([, v]) => v);
+    document.getElementById('rows').innerHTML = rows.map(([k, v]) =>
+      `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
+    document.getElementById('note').textContent = rail === 'stablecoin'
+      ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs'
+      : '安全支付由 Antom 提供 · 技术支持 Jirvs';
+  } catch {
+    document.getElementById('railNote').textContent = '已完成（详情加载失败）';
+  }
+})();
+</script>
+</body>
+</html>

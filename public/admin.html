@@ -1,0 +1,1693 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jirvs 总后台 v115</title>
+<style>
+:root{
+  --teal:#1769ff; --teal-dark:#0f52d1; --blue:#1769ff; --blue-dark:#0f52d1; --blue-light:#eaf2ff; --gold:#c48a3a; --ink:#0f172a;
+  --bg:#f6f8fb; --surface:#f6f8fb; --card:#ffffff; --line:#e4e8ef; --muted:#5b6678;
+  --red:#e11d48; --green:#127a4b; --radius:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+/* ---------- 登录 ---------- */
+#loginView{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;background:linear-gradient(180deg,#ffffff 0%,var(--bg) 100%)}
+.login-card{background:#fff;border:1px solid var(--line);border-radius:24px;padding:38px 34px;width:100%;max-width:400px;box-shadow:0 30px 80px rgba(15,23,42,.11),0 5px 18px rgba(15,23,42,.04)}
+.login-card h1{font-size:24px;margin-bottom:6px;font-weight:800;letter-spacing:-.03em}
+.login-card h1 .dot{color:var(--teal)}
+.login-card p.sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:13px;font-weight:650;margin-bottom:6px;color:var(--muted)}
+.field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:10px;font-size:14px;background:#fff;color:var(--ink)}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(23,105,255,.15)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:10px 18px;border:none;border-radius:12px;font-size:14px;cursor:pointer;background:var(--teal);color:#fff;font-weight:700;transition:background .15s,border-color .15s,transform .15s}
+.btn:hover{background:var(--teal-dark)}
+.btn.block{width:100%;padding:12px}
+.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.btn.ghost:hover{background:#f9fafb;border-color:#cfd6e0}
+.btn.danger{background:var(--red)}
+.btn.gold{background:var(--gold)}
+.btn.sm{padding:6px 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.err{color:var(--red);font-size:13px;min-height:18px;margin-top:10px}
+/* ---------- 主框架 ---------- */
+#appView{display:flex;min-height:100vh}
+.sidebar{width:224px;flex:none;background:#fff;color:var(--muted);border-right:1px solid var(--line);display:flex;flex-direction:column;position:sticky;top:0;height:100vh}
+.brand{padding:20px 18px;border-bottom:1px solid var(--line)}
+.brand h2{font-size:17px;color:var(--ink);font-weight:800;letter-spacing:-.03em}
+.brand h2 .dot{color:var(--teal)}
+.nav{flex:1;padding:12px;overflow-y:auto}
+.nav a{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;color:#475467;text-decoration:none;font-size:14px;font-weight:600;margin-bottom:2px;cursor:pointer;transition:background .15s,color .15s}
+.nav a:hover{background:var(--bg);color:var(--ink)}
+.nav a.active{background:var(--blue-light);color:var(--blue-dark);font-weight:700}
+.nav a .ico{width:18px;text-align:center}
+.nav .nav-mod{font-size:11px;color:#94a3b8;letter-spacing:1px;margin:14px 4px 6px}
+.side-foot{padding:14px;border-top:1px solid var(--line);font-size:13px}
+.side-foot .who{color:var(--ink);font-weight:650;word-break:break-all}
+.side-foot .role{display:inline-block;margin-top:6px;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:650;background:var(--blue-light);color:var(--blue-dark)}
+.side-foot .role.ro{background:#fff7ed;color:#b45309}
+.side-foot button{margin-top:10px;width:100%;background:#fff;border:1px solid var(--line);color:var(--ink);border-radius:10px;padding:9px;cursor:pointer;font-weight:600}
+.side-foot button:hover{background:#f9fafb;border-color:#cfd6e0}
+.main{flex:1;min-width:0;padding:24px;max-width:1200px}
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:10px}
+.topbar h2{font-size:22px;font-weight:780;letter-spacing:-.03em}
+.top-actions{display:flex;align-items:center;gap:8px}
+.bell{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--line);background:#fff;font-size:17px;cursor:pointer}
+.bell .badge{position:absolute;top:-5px;right:-5px;min-width:19px;height:19px;line-height:19px;text-align:center;border-radius:10px;background:var(--red);color:#fff;font-size:11px;font-weight:700;padding:0 5px}
+.page{display:none}
+.page.active{display:block}
+/* ---------- 卡片 ---------- */
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.card{background:var(--card);border-radius:var(--radius);padding:16px;border:1px solid var(--line);box-shadow:0 1px 2px rgba(15,23,42,.03)}
+.card.clickable{cursor:pointer;transition:transform .1s,box-shadow .1s}
+.card.clickable:hover{transform:translateY(-2px);box-shadow:0 18px 45px rgba(23,105,255,.09)}
+.card.clickable.sel{border-color:var(--teal);box-shadow:0 0 0 2px rgba(23,105,255,.16)}
+.card .k{font-size:12px;color:var(--muted);margin-bottom:7px}
+.card .v{font-size:22px;font-weight:700}
+.card .v.gold{color:var(--gold)}
+.card .v.teal{color:var(--teal-dark)}
+.card .v.red{color:var(--red)}
+.card .v.orange{color:#e8730c}
+.card .v.muted{color:#9aa3b2}
+.tfilter{display:contents}
+.pbtns{display:flex;gap:8px;align-items:center}
+.pbtns{display:flex;gap:8px}
+.pbtns .btn.sel{border-color:var(--teal);color:var(--teal);background:#eaf2ff}
+
+.card .u{font-size:12px;color:var(--muted);margin-top:3px}
+.big-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px}
+.big-card{background:var(--card);border-radius:var(--radius);padding:18px;border:1px solid var(--line);box-shadow:0 1px 2px rgba(15,23,42,.03)}
+.big-card .k{font-size:13px;color:var(--muted)}
+.big-card .row2{display:flex;gap:26px;margin-top:10px;flex-wrap:wrap}
+.big-card .cell .n{font-size:22px;font-weight:700}
+.big-card .cell .t{font-size:12px;color:var(--muted);margin-top:2px}
+/* ---------- 表格 ---------- */
+.panel{background:var(--card);border-radius:var(--radius);border:1px solid var(--line);overflow:hidden;box-shadow:0 1px 2px rgba(15,23,42,.03);margin-bottom:16px}
+.panel-h{padding:14px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.panel-h h3{font-size:15px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px;min-width:640px}
+th,td{padding:11px 14px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+th{background:var(--surface);color:var(--muted);font-weight:650;font-size:12px}
+tr:last-child td{border-bottom:none}
+td a.mname{color:var(--ink);font-weight:700;text-decoration:none}
+td a.mname:hover{color:var(--teal-dark);text-decoration:underline}
+.subs-list{display:none}
+.m-kv{display:flex;gap:8px;align-items:center;padding:5px 0;font-size:13px}
+.m-kv .k{color:var(--muted);flex:none;min-width:36px}
+.m-kv .v{flex:1}
+.m-act{margin-top:8px;text-align:right}
+.subs-item{padding:13px 18px;border-bottom:1px solid var(--line)}
+.subs-item:last-child{border-bottom:none}
+.subs-item .l1{font-weight:700;font-size:14.5px}
+.subs-item .l2{font-size:13px;margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.subs-item .l3{font-size:12.5px;color:var(--muted);margin-top:4px}
+.subs-item{cursor:pointer}
+.subs-item .srow{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.subs-item .samt{font-size:15px}
+.sub-detail{display:none}
+.sub-detail.open{display:block}
+@media (max-width:900px){ #subTblWrap,#cTblWrap,#pTblWrap,#fmTblWrap{display:none} .subs-list{display:block} }
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px;margin-top:6px}
+.kv>div{font-size:12px;color:var(--muted)}
+.kv>div b{display:block;font-size:14.5px;color:var(--ink);margin-top:2px;font-weight:600}
+@media (max-width:640px){
+  .kv{grid-template-columns:1fr 1fr;gap:10px 12px}
+  .ptable thead{display:none}
+  .ptable tr{display:block;padding:8px 0;border-bottom:1px solid var(--line)}
+  .ptable td{display:block;border-bottom:none;padding:2px 8px;font-size:13px}
+  .ptable td:first-child{font-weight:700;font-size:14px}
+  .ptable td:not(:first-child){color:var(--muted)}
+  .ptable tfoot tr{border-bottom:none}
+  .ptable tfoot td{display:inline-block}
+}
+.ptable{width:100%;border-collapse:collapse;font-size:13px}
+.ptable th,.ptable td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+.ptag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;line-height:1.5}
+.ptag.y{background:#fdf0d3;color:#92600a;border:1px solid #f0d489}
+.ptag.m{background:#e2ecff;color:#175cd3;border:1px solid #b9d2fb}
+.tag{display:inline-block;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600}
+.tag.ok{background:#ecfbf4;color:var(--green)}
+.tag.warn{background:#fff7ed;color:#b45309}
+.tag.bad{background:#fff1f2;color:var(--red)}
+.tag.info{background:var(--blue-light);color:var(--teal-dark)}
+.tag.gray{background:#f2f4f7;color:var(--muted)}
+/* ---------- 筛选 ---------- */
+.filters{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:16px;align-items:center}
+.filters input,.filters select{padding:9px 12px;border:1px solid var(--line);border-radius:10px;font-size:13px;background:#fff;color:var(--ink)}
+.tfilter>input,.tfilter>select,.tfilter .pbtns .btn.sm,.filters .msel>input{height:42px!important;min-height:0!important;max-height:42px!important;box-sizing:border-box!important;border-radius:12px!important;font-size:13px}
+.tfilter>select{-webkit-appearance:none!important;appearance:none!important}
+.tfilter>input,.tfilter>select,.filters .msel>input{padding:0 12px!important;background-color:#fff!important;border:1px solid var(--line)!important;color:var(--ink)}
+.tfilter .pbtns .btn.sm{padding:0 16px!important;line-height:40px!important}
+.tfilter>select{padding-right:28px!important;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 10px center!important}
+.filters input:focus,.filters select:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(23,105,255,.15)}
+.msel{position:relative}
+.msel .drop{position:absolute;top:110%;left:0;right:0;min-width:260px;background:#fff;border:1px solid var(--line);border-radius:14px;box-shadow:0 30px 80px rgba(15,23,42,.16);max-height:280px;overflow-y:auto;z-index:50;display:none}
+.msel .drop.open{display:block}
+.msel .drop .opt{padding:10px 14px;cursor:pointer;border-bottom:1px solid #edf0f4}
+.msel .drop .opt:hover{background:var(--surface)}
+.msel .drop .opt .e{font-size:12px;color:var(--muted)}
+.msel .drop .empty{padding:14px;color:var(--muted);text-align:center}
+.chip{display:inline-flex;align-items:center;gap:8px;background:var(--blue-light);border:1px solid var(--teal);color:var(--teal-dark);border-radius:999px;padding:6px 8px 6px 14px;font-size:13px;font-weight:650}
+.chip button{border:none;background:var(--teal);color:#fff;width:20px;height:20px;border-radius:50%;cursor:pointer;font-size:12px;line-height:1}
+.fstats{display:inline-flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;align-items:center;background:#fff;border:1px solid var(--line);border-radius:10px;padding:9px 14px}
+.fstats label{display:inline-flex;gap:5px;align-items:center;cursor:pointer;white-space:nowrap}
+/* ---------- 弹窗 ---------- */
+.modal-mask{position:fixed;inset:0;background:rgba(15,23,42,.5);display:none;align-items:center;justify-content:center;z-index:100;padding:16px}
+.modal-mask.open{display:flex}
+.modal{background:#fff;border-radius:20px;padding:28px;width:100%;max-width:460px;max-height:90vh;max-height:90dvh;overflow-y:auto;box-shadow:0 30px 80px rgba(15,23,42,.25)}
+.modal h3{font-size:18px;margin-bottom:6px;letter-spacing:-.02em}
+.modal p.desc{font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.7}
+.modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
+.notif-item{display:flex;justify-content:space-between;gap:12px;padding:13px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.notif-item:last-child{border-bottom:none}
+.notif-item b{font-size:16px}
+/* ---------- 微信借鉴：月度汇总 / 按日分组 / 通知卡片 ---------- */
+.month-bar{display:flex;flex-wrap:wrap;gap:6px 24px;align-items:baseline;background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px 18px;margin-bottom:14px}
+.month-bar .t{font-size:13px;color:var(--muted)}
+.month-bar .n{font-size:19px;font-weight:800}
+.month-bar .n.out{color:#c2410c}
+.day-head td{background:var(--surface);font-weight:700;font-size:13px;color:var(--ink)}
+.day-head{font-weight:700;font-size:13px;color:var(--ink);padding:12px 4px 6px}
+.day-head .ds{color:var(--muted);font-weight:600;font-size:12px;margin-left:10px}
+/* ---------- 订单卡片（与商户门户同格式） ---------- */
+.orow{display:flex;align-items:center;gap:12px;padding:11px 4px;border-bottom:1px solid var(--line);cursor:pointer}
+.orow:hover{background:var(--surface)}
+.o-ico{font-size:22px;flex:none}
+.o-mid{flex:1;min-width:0}
+.o-pay{font-size:14px;font-weight:650;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.o-sub{font-size:12px;color:var(--muted);margin-top:2px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.o-right{text-align:right;flex:none}
+.o-amt{font-size:16px;font-weight:800;display:block;white-space:nowrap}
+.o-amt.out{color:#c2410c}
+.o-st{font-size:12px;margin-top:2px;display:block}
+.o-st.ok{color:var(--green)}.o-st.warn{color:#b45309}.o-st.bad{color:var(--red)}.o-st.mut{color:var(--muted)}.o-st.out{color:#c2410c}
+/* ---------- 经营简报 / 收款统计（与商户门户同格式） ---------- */
+.od-t{font-weight:700;font-size:12.5px;margin-bottom:2px}
+.brief-card{background:linear-gradient(135deg,#1769ff,#0f52d1);color:#fff;border-radius:20px;padding:20px;margin:6px 0 4px}
+.brief-card .bt{font-size:13px;opacity:.85}
+.brief-card .bn{font-size:26px;font-weight:800;margin:6px 0}
+.brief-card .bd{font-size:13px;opacity:.92;line-height:1.9}
+.brief-toggle{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted);cursor:pointer}
+.brief-toggle input{width:16px;height:16px;accent-color:var(--teal)}
+.stat-bar{display:flex;align-items:center;gap:10px;margin:8px 0;font-size:13px}
+.stat-bar .lb{flex:0 0 92px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.stat-bar .tr{flex:1;height:10px;background:var(--surface);border-radius:6px;overflow:hidden}
+.stat-bar .fl{display:block;height:100%;background:var(--teal);border-radius:6px}
+.stat-bar .vl{flex:0 0 64px;text-align:right;font-weight:700}
+.day-cols{display:flex;align-items:flex-end;gap:6px;height:118px;margin-top:10px}
+.day-col{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;height:100%}
+.day-col .b{width:70%;background:var(--teal);border-radius:4px 4px 0 0;min-height:3px}
+.day-col .d{font-size:10.5px;color:var(--muted)}
+.refund-amt{color:#c2410c;font-weight:800}
+.refund-ico{color:#c2410c;margin-right:4px}
+.notif-day{font-size:12px;color:var(--muted);margin:12px 0 4px;font-weight:700}
+.notif-day:first-child{margin-top:0}
+.udot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#2563eb;margin-right:8px;vertical-align:2px}
+.ndetail{display:none;font-size:12.5px;color:var(--muted);margin-top:6px;line-height:1.7;border-top:1px dashed var(--line);padding-top:6px}
+.ndetail.open{display:block}
+.notif-card{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:13px 2px;border-bottom:1px solid var(--line)}
+.notif-card:last-child{border-bottom:none}
+.notif-card.clickable{cursor:pointer}
+.notif-card.clickable:hover .tt{color:var(--teal-dark)}
+.notif-card .tt{font-size:14px;font-weight:650}
+.notif-card .dd{font-size:12.5px;color:var(--muted);margin-top:3px;line-height:1.6}
+.notif-card .dd .hl{color:#c2410c;font-weight:700}
+.notif-card .amt{font-size:19px;font-weight:800;white-space:nowrap}
+.notif-card .amt.out{color:#c2410c}
+.notif-card .go{font-size:12px;color:var(--teal-dark);white-space:nowrap}
+/* ---------- 分润 ---------- */
+.tabs{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.tabs button{padding:8px 18px;border:1px solid var(--line);background:#fff;border-radius:20px;cursor:pointer;font-size:13px;color:var(--ink)}
+.tabs button.active{background:var(--teal);color:#fff;border-color:var(--teal)}
+.tabs input[type=date]{padding:7px 10px;border:1px solid var(--line);border-radius:10px;font-size:13px}
+.orders-flex{display:flex;flex-direction:column}
+.order-scroll{overflow-y:auto;max-height:52vh}
+#foRows{padding:0 14px}
+#page-subs .filters>input,#page-subs .filters>select{height:42px!important;min-height:0!important;box-sizing:border-box!important;border-radius:12px!important;font-size:13px;padding:0 12px!important;background-color:#fff!important;border:1px solid var(--line)!important;color:var(--ink)}
+#page-subs .filters>select{-webkit-appearance:none!important;appearance:none!important;padding-right:28px!important;background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%23666' stroke-width='1.5' fill='none'/%3E%3C/svg%3E")!important;background-repeat:no-repeat!important;background-position:right 10px center!important}
+.order-totals{flex:none;background:#fff;border-top:2px solid var(--teal);padding:14px 18px;display:flex;flex-wrap:wrap;gap:18px;align-items:center;font-size:14px}
+.order-totals .t{font-weight:700}
+.order-totals .n{font-size:18px;font-weight:700}
+.note{font-size:12px;color:var(--muted);margin-top:12px;line-height:1.7}
+/* ---------- 邀请 ---------- */
+#toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:999px;font-size:13px;display:none;z-index:300;box-shadow:0 10px 30px rgba(15,23,42,.25)}
+.inv-link{background:#0f172a;color:#bfdbfe;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;border-radius:12px;padding:11px 12px;word-break:break-all;margin-top:10px}
+/* ---------- 移动端 ---------- */
+.menu-btn{display:none;background:none;border:none;font-size:22px;cursor:pointer;color:var(--ink)}
+@media (max-width:768px){
+  #appView{flex-direction:column}
+  .sidebar{width:100%;height:auto;position:static}
+  .brand{padding:12px 16px;display:flex;align-items:center;justify-content:space-between}
+  .nav{display:none;padding:8px 12px}
+  .nav.open{display:block}
+  .nav a{display:inline-block;margin:2px 4px;padding:8px 12px}
+  .menu-btn{display:block}
+  .side-foot{display:none}
+  .nav.open ~ .side-foot{display:block;border-top:1px solid var(--line)}
+  .main{padding:14px}
+  .cards{grid-template-columns:repeat(4,1fr);gap:8px}
+  .cards .card{padding:10px 6px}
+  .cards .k{font-size:10px;white-space:nowrap}
+  .cards .v{font-size:12px;letter-spacing:-.2px;white-space:nowrap;overflow:hidden}
+
+  .card{padding:11px}.card .v{font-size:17px}
+  .big-cards{grid-template-columns:1fr}
+  .order-scroll{max-height:none}
+}
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="loginView">
+  <div class="login-card">
+    <h1>Jirvs <span class="dot">总后台</span></h1>
+    <p class="sub">仅限管理员</p>
+    <div class="field"><label>管理员邮箱</label><input id="loginEmail" type="email" value="admin@jirvs.com" autocomplete="username"></div>
+    <div class="field"><label>密码</label><input id="loginPw" type="password" value="123456" autocomplete="current-password"></div>
+    <button class="btn block" id="loginBtn" onclick="doLogin()">登录</button>
+    <div class="err" id="loginErr"></div>
+  </div>
+</div>
+
+<!-- 主界面 -->
+<div id="appView" hidden>
+  <aside class="sidebar">
+    <div class="brand">
+      <div><h2>Jirvs <span class="dot">总后台</span></h2></div>
+      <button class="menu-btn" onclick="document.querySelector('.nav').classList.toggle('open')">☰</button>
+    </div>
+    <nav class="nav" id="mainNav">
+      <a data-page="subs" class="active" onclick="go('subs')"><span class="ico">💳</span>订阅收入</a>
+      <a data-page="commission" onclick="go('commission')"><span class="ico">🤝</span>生态管理</a>
+      <a data-page="fiatMerchants" onclick="go('fiatMerchants')"><span class="ico">🏦</span>商家总览</a>
+      <a data-page="fiatOrders" onclick="go('fiatOrders')"><span class="ico">🧾</span>交易订单</a>
+      <a data-page="webhooks" onclick="go('webhooks')"><span class="ico">📡</span>Webhook 日志</a>
+      <a data-page="profit" onclick="go('profit')"><span class="ico">💰</span>分润结算</a>
+      <a data-page="leads" onclick="go('leads')"><span class="ico">✉️</span>合作留言</a>
+      <a data-page="logs" onclick="go('logs')"><span class="ico">📋</span>操作日志</a>
+      <a data-page="admins" onclick="go('admins')"><span class="ico">👤</span>管理员设置</a>
+    </nav>
+    <div class="side-foot">
+      <div class="who" id="whoEmail"></div>
+      <span class="role" id="whoRole"></span>
+      <button onclick="openPw()">改密码</button>
+      <button onclick="doLogout()">退出登录</button>
+    </div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <h2 id="pageTitle">总览</h2>
+      <div class="top-actions">
+        <button class="bell" id="bellBtn" onclick="openNotifs()">🔔<span class="badge" id="bellBadge">3</span></button>
+        <button class="btn sm ghost" onclick="refreshPage()">↻ 刷新</button>
+      </div>
+    </div>
+
+    <!-- 总览 -->
+    <!-- 订阅收入 -->
+    <section class="page active" id="page-subs">
+      <div class="cards" id="subCards"></div>
+      <div class="panel">
+        <div class="panel-h"><h3>订阅收款记录</h3></div>
+        <div class="filters" style="padding:12px 18px 0">
+<input id="subQ" placeholder="快速检索：商户主体 / 邮箱" style="min-width:220px" oninput="renderSubs()">
+          <select id="subType" onchange="renderSubs()"><option value="">全部类型</option><option value="year">年费用户</option><option value="month">月费用户</option></select>
+          <select id="subDue" onchange="renderSubs()"><option value="">全部状态</option><option value="active">生效中</option></select>
+          <span class="hint">订阅日期</span><input type="date" id="subFrom" onchange="subPeriod='custom';renderSubs()"><span class="hint">～</span><input type="date" id="subTo" onchange="subPeriod='custom';renderSubs()">
+        </div>
+        <div class="tbl-wrap" id="subTblWrap"><table>
+          <thead><tr><th>商户主体</th><th>金额</th><th>收款方式</th><th>订阅日期</th><th>购买日期</th><th>状态</th></tr></thead>
+          <tbody id="subRows"></tbody>
+        </table></div>
+        <div id="subList" class="subs-list"></div>
+      </div>
+    </section>
+
+    <!-- 法币商户 -->
+    <section class="page" id="page-fiatMerchants">
+      <div class="cards" id="fmCards"></div>
+      <div class="panel">
+        <div class="panel-h"><h3 id="fmTitle">全部法币商户</h3></div>
+        <div class="tbl-wrap" id="fmTblWrap"><table>
+          <thead><tr><th>商户</th><th>Antom</th><th>Airwallex</th><th>路由方式</th><th>订阅</th><th>状态</th><th>注册时间</th><th>操作</th></tr></thead>
+          <tbody id="fmRows"></tbody>
+        </table></div>
+        <div id="fmList" class="subs-list"></div>
+      </div>
+    </section>
+
+    <!-- 法币订单 -->
+    <section class="page" id="page-fiatOrders">
+      <div class="cards" id="foCards"></div>
+      <div class="panel"><div class="orders-flex">
+        <div style="padding:14px 18px 0">
+          <div class="filters">
+            <div class="msel"><input id="fq" placeholder="搜索商户名称/邮箱" autocomplete="off" style="min-width:200px"><div class="drop" id="fqDrop"></div></div>
+            <div class="tfilter" id="foPeriodBar">
+              <span class="pbtns" id="foPeriodBtns">
+                <button class="btn sm ghost" data-p="day" onclick="setFoPeriod('day')">当日</button>
+                <button class="btn sm ghost sel" data-p="month" onclick="setFoPeriod('month')">当月</button>
+                <button class="btn sm ghost" data-p="total" onclick="setFoPeriod('total')">累计</button>
+              </span>
+              <input type="date" id="foStart" value="2026-10-01" onchange="setFoCustom()" style="max-width:150px">
+              <span style="color:var(--muted)">～</span>
+              <input type="date" id="foEnd" value="2026-10-31" onchange="setFoCustom()" style="max-width:150px">
+              <select id="fGw" onchange="loadFiatOrders()"><option value="">全部通道</option><option value="Antom">Antom</option><option value="Airwallex">Airwallex</option></select>
+            </div>
+          </div>
+        </div>
+        <div class="order-scroll"><div id="foRows"></div></div>
+      </div></div>
+      <div class="panel">
+        <div class="panel-h"><h3>经营简报</h3><label class="brief-toggle"><input type="checkbox" checked onchange="toastAdmin(this.checked ? '每日简报已开启，明早 0:01 推送' : '每日简报已关闭')"> 每日推送</label></div>
+        <div style="padding:12px 18px 4px" id="admBrief"></div>
+        <div style="padding:0 18px 14px;font-size:12px;color:var(--muted)">每日 0:01 推送10月6日经营简报（站内信）。数据来自通道同步与 Jirvs 订单，金额与笔数缺一不可。</div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>收款统计</h3><span style="font-size:12px;color:var(--muted)">近 7 天 · 已支付订单</span></div>
+        <div style="padding:12px 18px 14px" id="admStats"></div>
+      </div>
+    </section>
+
+    <!-- Webhook 日志 -->
+    <section class="page" id="page-webhooks">
+      <div class="panel"><div class="orders-flex">
+        <div style="padding:14px 18px 0">
+          <div class="filters">
+            <select id="wGw" onchange="renderWH()"><option value="">全部通道</option><option value="Antom">Antom</option><option value="Airwallex">Airwallex</option></select>
+            <select id="wRes" onchange="renderWH()"><option value="">全部结果</option><option value="ok">成功</option><option value="retry">重试</option><option value="fail">失败</option></select>
+          </div>
+        </div>
+        <div class="order-scroll tbl-wrap"><table>
+          <thead><tr><th>时间</th><th>通道</th><th>事件类型</th><th>关联订单</th><th>处理结果</th><th>耗时</th><th>操作</th></tr></thead>
+          <tbody id="whRows"></tbody>
+        </table></div>
+        <div class="note" style="padding:0 18px 14px">重放仅调试用；正式环境需二次确认。</div>
+      </div></div>
+    </section>
+
+    <!-- 分润结算 -->
+    <section class="page" id="page-profit">
+      <div class="tabs" id="profitTabs">
+        <button data-p="day" class="active" onclick="setPeriod('day')">当天</button>
+        <button data-p="month" onclick="setPeriod('month')">当月</button>
+        <button data-p="all" onclick="setPeriod('all')">累计</button>
+        <button data-p="custom" onclick="setPeriod('custom')">自选</button>
+        <span id="profitCustom" style="display:none"><input type="date" id="pStart"> ～ <input type="date" id="pEnd"> <button class="btn sm" onclick="renderProfit()">查询</button></span>
+        <span style="flex:1"></span>
+        <button class="btn sm ghost" onclick="exportProfit()">导出对账单</button>
+      </div>
+      <div class="big-cards" id="profitTop"></div>
+      
+      <div class="note" id="profitNote"></div>
+    </section>
+
+    <!-- 佣金支出 -->
+    <section class="page" id="page-commission">
+      <div class="cards" id="cCards"></div>
+      <div class="panel">
+        <div class="panel-h"><h3>生态合作伙伴</h3><span><button class="btn sm ghost" onclick="exportPayouts()">导出返佣记录</button></span></div>
+        <div class="tbl-wrap" id="cTblWrap"><table>
+          <thead><tr><th>合作伙伴</th><th>类型</th><th>伙伴状态</th><th>推荐商户</th><th>最近新增商户</th><th>待打款</th><th>累计已付</th><th>结算状态</th><th>操作</th></tr></thead>
+          <tbody id="cRows"></tbody>
+        </table></div>
+        <div id="cList" class="subs-list"></div>
+      </div>
+    
+      <div class="note">佣金按订阅费计算，是 Jirvs 的支出，与分润（收入）分开入账。</div>
+    </section>
+
+    <!-- 合作留言 -->
+    <section class="page" id="page-leads">
+      <div class="panel">
+        <div class="panel-h"><h3>官网生态合作留言</h3></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>时间</th><th>姓名</th><th>电话</th><th>邮箱</th><th>合作需求</th><th>状态</th><th>操作</th></tr></thead>
+          <tbody id="leadRows"></tbody>
+        </table></div>
+      </div>
+      <div class="note">留言来自官网「生态合作」表单，邮箱为选填。处理完记得标记状态。</div>
+    </section>
+
+    <!-- 操作日志 -->
+    <section class="page" id="page-logs">
+      <div class="panel">
+        <div class="panel-h"><h3>操作日志</h3></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>时间</th><th>管理员</th><th>动作</th><th>对象</th><th>原因/备注</th></tr></thead>
+          <tbody id="logRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+
+    <!-- 管理员设置 -->
+    <section class="page" id="page-admins">
+      <div class="panel">
+        <div class="panel-h"><h3>添加管理员</h3></div>
+        <div style="padding:16px 18px" id="addAdminBox">
+          <div class="filters" style="margin:0">
+            <input id="newAdminEmail" type="email" placeholder="对方邮箱" style="min-width:220px">
+            <button class="btn sm" onclick="addAdmin()">添加只读管理员</button>
+          </div>
+          <div class="note">添加后默认密码为 123456，请通知对方登录后尽快修改密码。</div>
+          <div id="tokenResult"></div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-h"><h3>管理员列表</h3></div>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>邮箱</th><th>角色</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody id="adminRows"></tbody>
+        </table></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- 通用确认 -->
+<div class="modal-mask" id="confirmModal">
+  <div class="modal">
+    <h3 id="confirmTitle">确认</h3>
+    <p class="desc" id="confirmMsg"></p>
+    <div class="row"><button class="btn ghost" onclick="closeModal('confirmModal')">取消</button><button class="btn danger" id="confirmBtn">确认</button></div>
+  </div>
+</div>
+
+<!-- 邀请新伙伴 -->
+<div class="modal-mask" id="inviteModal">
+  <div class="modal">
+    <h3 id="inviteTitle">邀请生态合作伙伴</h3>
+    <p class="desc">生成专属邀请链接，微信发给对方。对方在生态合作伙伴中心登录、阅读协议并勾选同意后即完成签署，状态自动同步到本页。</p>
+    <div class="field"><label>伙伴名称</label><input id="invName" placeholder="例如：出海增长笔记"></div>
+    <div class="field"><label>类型</label><select id="invType"><option value="个人">个人</option><option value="企业">企业</option></select></div>
+    <div class="field"><label>对方联系方式（手机号 / 微信）</label><input id="invContact" placeholder="用于发送邀请，可留空生成链接"></div>
+    <div id="invResult"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('inviteModal')">关闭</button><button class="btn" id="invGenBtn" onclick="genInvite()">生成邀请链接</button></div>
+  </div>
+</div>
+
+<!-- 协议查看 -->
+<div class="modal-mask" id="rebateModal">
+  <div class="modal" style="max-width:560px">
+    <h3 id="rebateTitle">返佣记录</h3>
+    <div id="rebateBody"></div>
+    <div class="row"><button class="btn ghost" onclick="document.getElementById('rebateModal').classList.remove('open')">关闭</button></div>
+  </div>
+</div>
+<div class="modal-mask" id="vipSetModal">
+  <div class="modal" style="max-width:460px">
+    <h3 id="vipSetTitle">特批设置</h3>
+    <div id="vipSetBody"></div>
+    <div class="row"><button class="btn ghost" onclick="document.getElementById('vipSetModal').classList.remove('open')">取消</button><button class="btn" onclick="saveVipSet()">保存</button></div>
+  </div>
+</div>
+<div class="modal-mask" id="payModal">
+  <div class="modal" style="max-width:560px">
+    <h3 id="payTitle">打款明细</h3>
+    <div id="payBody"></div>
+    <div class="row"><button class="btn ghost" onclick="document.getElementById('payModal').classList.remove('open')">关闭</button></div>
+  </div>
+</div>
+<div class="modal-mask" id="agrModal">
+  <div class="modal" style="max-width:600px">
+    <h3 id="agrModalTitle">合作协议</h3>
+    <div id="agrText" style="border:1px solid var(--line);border-radius:10px;background:#fbfcfc;padding:16px;max-height:44vh;overflow-y:auto;font-size:12.5px;line-height:1.9"></div>
+    <div id="agrRecord" style="margin-top:14px;font-size:13px;line-height:2"></div>
+    <div id="agrSupp"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('agrModal')">关闭</button></div>
+  </div>
+</div>
+
+<!-- 通知弹窗 -->
+<div class="modal-mask" id="notifModal">
+  <div class="modal">
+    <h3>通知</h3>
+    <div id="notifList"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('notifModal')">关闭</button></div>
+  </div>
+</div>
+
+<!-- 经营简报弹窗 -->
+<div class="modal-mask" id="briefModal">
+  <div class="modal">
+    <h3>10月6日经营简报</h3>
+    <div id="briefBody" style="font-size:13px;line-height:2"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('briefModal')">关闭</button></div>
+  </div>
+</div>
+
+<!-- 简报明细弹窗 -->
+<div class="modal-mask" id="briefDetailModal">
+  <div class="modal">
+    <h3>10月1日明细</h3>
+    <div id="briefDetailBody"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('briefDetailModal')">关闭</button></div>
+  </div>
+</div>
+<div id="toast"></div>
+
+<!-- 冻结弹窗 -->
+<div class="modal-mask" id="freezeModal">
+  <div class="modal">
+    <div id="freezeStep1">
+      <h3>冻结商户</h3>
+      <p class="desc">冻结后该商户将无法登录商户门户，其 API Key 立即失效。不影响其通道账号与资金。</p>
+      <div class="field"><label>冻结原因（必填）</label><textarea id="freezeReason" rows="3" placeholder="请填写冻结原因，将记入操作日志"></textarea></div>
+      <div class="err" id="freezeErr"></div>
+      <div class="row"><button class="btn ghost" onclick="closeModal('freezeModal')">取消</button><button class="btn danger" onclick="freezeNext()">下一步</button></div>
+    </div>
+    <div id="freezeStep2" hidden>
+      <h3>确认冻结？</h3>
+      <p class="desc">商户：<b id="freezeMName"></b></p>
+      <p class="desc">原因：<b id="freezeMReason"></b></p>
+      <div class="row"><button class="btn ghost" onclick="freezeBack()">返回修改</button><button class="btn danger" onclick="doFreeze()">确认冻结</button></div>
+    </div>
+  </div>
+</div>
+
+<!-- 解冻确认 -->
+<div class="modal-mask" id="unfreezeModal">
+  <div class="modal">
+    <h3>确认解冻？</h3>
+    <p class="desc">商户：<b id="unfreezeMName"></b>。解冻后该商户可恢复登录，API Key 恢复有效。</p>
+    <div class="row"><button class="btn ghost" onclick="closeModal('unfreezeModal')">取消</button><button class="btn" onclick="doUnfreeze()">确认解冻</button></div>
+  </div>
+</div>
+
+<!-- 修改密码 -->
+<div class="modal-mask" id="pwModal">
+  <div class="modal">
+    <h3>修改密码</h3>
+    <div class="field"><label>旧密码</label><input id="pwOld" type="password" placeholder="请输入旧密码"></div>
+    <div class="field"><label>新密码（至少 6 位）</label><input id="pwNew" type="password" placeholder="请输入新密码"></div>
+    <div class="err" id="pwErr"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('pwModal')">取消</button><button class="btn" onclick="doChangePw()">确认修改</button></div>
+  </div>
+</div>
+
+<!-- 订单详情 -->
+<div class="modal-mask" id="orderModal">
+  <div class="modal">
+    <h3>订单详情</h3>
+    <div id="orderDetail" style="font-size:13px;line-height:2"></div>
+    <div class="row"><button class="btn ghost" onclick="closeModal('orderModal')">关闭</button></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ===== 演示数据（正式版由后端接口返回，结构一致） ===== */
+const TODAY = '2026-10-02';
+let FM = [];
+let FO = [];
+let PARTNERS = [];
+let TERMINATED = [];
+let SUNK = [];
+function pStatusTag(p) {
+
+  if (p.sign !== 'signed') return '<span class="tag warn">未签协议</span><div style="font-size:11px;color:var(--muted);margin-top:3px">签署后开启推荐与计佣</div>';
+
+  return '<span class="tag ok">正常</span>';
+}
+function vipSub(p) {
+  if (!p.vip) return '';
+  const t = (p.vip.signed && p.vip.signTime) ? '特批 ' + esc(p.vip.signTime.slice(0, 10)) : '特批待签';
+  return `<div style="font-size:11px;color:var(--muted);margin-top:3px">${t}</div>`;
+}
+let LOGS = [];
+let ADMINS = [];
+
+/* ===== 工具 ===== */
+const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const money = (n) => Number(n || 0).toLocaleString('zh-CN', {minimumFractionDigits:2, maximumFractionDigits:2});
+const usd = (n) => '$' + money(n);
+const closeModal = (id) => $(id).classList.remove('open');
+const chanTag = (st) => st === 'active' ? '<span class="tag ok">已开通</span>' : '<span class="tag gray">未开通</span>';
+const subTag = (s) => !s || s.st === 'none' ? '<span class="tag gray">未订阅</span>' : s.st === 'active' ? '<span class="tag ok">订阅中</span>' : '<span class="tag warn">已过期</span>';
+const subPlanOf = (email) => {
+  const s = SUBS.find(x => x.email === email);
+  return s ? s.plan : '';
+};
+
+const statusTag = (s) => ({pending_pay:'<span class="tag warn">待支付</span>', paying:'<span class="tag info">支付中</span>', paid:'<span class="tag ok">已支付</span>', failed:'<span class="tag bad">已失败</span>', cancelled:'<span class="tag gray">已取消</span>', refunded:'<span class="tag gray">已退款</span>'}[s] || esc(s));
+const mName = (list, id) => { const m = list.find((x) => x.id === id); return m ? m.name : id; };
+
+/* ===== 登录 ===== */
+let curPage = 'subs';
+async function doLogin() {
+  const email = $('loginEmail').value.trim(), pw = $('loginPw').value;
+  if (!email || !pw) { $('loginErr').textContent = '请输入邮箱和密码'; return; }
+  $('loginErr').textContent = '';
+  $('loginBtn').disabled = true;
+  try {
+    const r = await fetch('/api/admin/login', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: pw }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '登录失败');
+    // 拉取真实数据
+    $('loginBtn').textContent = '加载数据中...';
+    await loadAllData();
+    $('loginView').style.display = 'none';
+    $('appView').hidden = false;
+    $('whoEmail').textContent = email;
+    $('whoRole').textContent = (j.admin && j.admin.role === 'superadmin') ? '超级管理员' : '管理员';
+    go('subs');
+  } catch (e) {
+    $('loginErr').textContent = e.message;
+  } finally {
+    $('loginBtn').disabled = false;
+    $('loginBtn').textContent = '登录';
+  }
+}
+function doLogout() { $('appView').hidden = true; $('loginView').style.display = 'flex'; }
+
+/* ===== 导航 ===== */
+const TITLES = {subs:'订阅收入', fiatMerchants:'商家总览', fiatOrders:'交易订单', webhooks:'Webhook 日志', profit:'分润结算', commission:'生态管理', leads:'合作留言', logs:'操作日志', admins:'管理员设置'};
+const LOADERS = {subs:renderSubs, fiatMerchants:renderFM, fiatOrders:loadFiatOrders, webhooks:renderWH, profit:renderProfit, commission:renderCommission, leads:renderLeads, logs:renderLogs, admins:renderAdmins};
+let orderTimer = null;
+function go(page) {
+  curPage = page;
+  document.querySelectorAll('.nav a').forEach((a) => a.classList.toggle('active', a.dataset.page === page));
+  document.querySelectorAll('.page').forEach((p) => p.classList.remove('active'));
+  $('page-' + page).classList.add('active');
+  document.querySelector('.nav').classList.remove('open');
+  $('pageTitle').textContent = TITLES[page];
+  LOADERS[page]();
+  fitCardAmounts();
+  if (orderTimer) { clearInterval(orderTimer); orderTimer = null; }
+  if (page === 'fiatOrders') {
+    orderTimer = setInterval(() => { if (curPage === page) { LOADERS[page](); fitCardAmounts(); } }, 5000);
+  }
+}
+function refreshPage() { LOADERS[curPage](); }
+
+/* ===== 通知（微信式卡片：时间分组 / 大金额 / 点击直达） ===== */
+let NOTIFS = [];
+function notifItems() {
+  const unconnected = FM.filter((m) => m.antom !== 'active' && m.airwallex !== 'active').length;
+  const failed = FO.filter((o) => o.status === 'failed').length;
+  const frozen = FM.filter((m) => m.frozen).length;
+  return [
+    ['通道未接通商户', unconnected + ' 家'],
+    ['异常订单（失败）', failed + ' 笔'],
+    ['已冻结商户', frozen + ' 家'],
+  ];
+}
+function unreadCount() { return NOTIFS.filter((n) => !n.read).length; }
+function paintBadge() {
+  const c = unreadCount(), b = $('bellBadge');
+  if (c > 0) { b.textContent = c; b.style.display = ''; } else { b.style.display = 'none'; }
+}
+function openNotifs() {
+  let html = '';
+  ['今天', '昨天', '更早'].forEach((d) => {
+    const ns = NOTIFS.filter((n) => n.day === d);
+    if (!ns.length) return;
+    html += `<div class="notif-day">${d}</div>`;
+    html += ns.map((n) => `<div class="notif-card clickable" onclick="tapNotif(${NOTIFS.indexOf(n)},this)">
+      <div style="flex:1;min-width:0"><div class="tt">${n.read ? '' : '<span class="udot"></span>'}${n.title}</div><div class="dd">${n.desc}</div>${n.detail ? `<div class="ndetail" id="nd${NOTIFS.indexOf(n)}">${n.detail}</div>` : ''}</div>
+      ${n.amt ? `<div class="amt ${n.amtCls}">${n.amt}</div>` : (n.oid ? '<div class="go">查看订单 ›</div>' : '<div class="go">›</div>')}
+    </div>`).join('');
+  });
+  $('notifList').innerHTML = html || '<div style="color:var(--muted);padding:12px 0">暂无通知</div>';
+  $('notifModal').classList.add('open');
+}
+function tapNotif(idx, el) {
+  const n = NOTIFS[idx];
+  if (!n) return;
+  if (!n.read) {
+    n.read = true; paintBadge();
+    const dot = el.querySelector('.udot');
+    if (dot) dot.remove();
+  }
+  if (n.oid) { goOrder(n.oid); return; }
+  if (n.act === 'brief') { openBrief(); return; }
+  const d = el.querySelector('.ndetail');
+  if (d) d.classList.toggle('open');
+}
+function openBrief() {
+  closeModal('notifModal');
+  $('briefBody').innerHTML = briefCardHtml() + '<div style="color:var(--muted);font-size:12px">每日 0:01 站内信推送10月6日经营简报</div>';
+  $('briefModal').classList.add('open');
+}
+function scrollModalTo(id) {
+  const modal = document.querySelector('#orderModal .modal');
+  const el = document.getElementById(id);
+  if (!modal || !el) return;
+  modal.scrollTo({top: el.getBoundingClientRect().top - modal.getBoundingClientRect().top + modal.scrollTop - 12, behavior:'smooth'});
+}
+function goOrder(oid) {
+  closeModal('notifModal');
+  if (curPage !== 'fiatOrders') go('fiatOrders'); else loadFiatOrders();
+  showOrder('f', oid);
+}
+
+
+/* ===== 订阅收入 ===== */
+let SUBS = [];
+
+/* ===== v21.7 真实数据层：页面数据全部来自后端 API ===== */
+async function apiGet(path) {
+  const r = await fetch(path, { credentials: 'include' });
+  if (!r.ok) throw new Error('API ' + path + ' -> ' + r.status);
+  return r.json();
+}
+async function loadAllData() {
+  const [mRes, pRes, sRes, oRes, nRes, lRes, aRes] = await Promise.all([
+    apiGet('/api/admin/merchants?limit=1000'),
+    apiGet('/api/admin/partners'),
+    apiGet('/api/admin/subscriptions'),
+    apiGet('/api/admin/orders?limit=200'),
+    apiGet('/api/admin/notifications'),
+    apiGet('/api/admin/logs?limit=200'),
+    apiGet('/api/admin/admins'),
+  ]);
+  // 商户 -> FM
+  const merchById = {};
+  FM = (mRes.merchants || []).map((m) => {
+    const o = {
+      id: m.merchant_id,
+      name: m.company_name || m.company || '',
+      email: m.email || '',
+      pid: m.partner_id || '',
+      sub: { st: 'none' },
+      antom: (m.channels_state && m.channels_state.fiat && m.channels_state.fiat.status === 'active') ? 'active' : 'none',
+      airwallex: 'none',
+      frozen: m.status === 'frozen',
+      created: (m.created_at || '').slice(0, 10),
+    };
+    merchById[o.id] = o;
+    return o;
+  });
+  // 订阅 -> SUBS，并回填 FM 订阅状态
+  SUBS = (sRes.subscriptions || []).map((s) => {
+    const fm = merchById[s.merchant_id];
+    const st = s.status === 'active' ? 'active' : 'none';
+    if (fm) fm.sub = { st };
+    return {
+      email: fm ? fm.email : '',
+      name: fm ? fm.name : s.merchant_id,
+      plan: '终身',
+      amount: Number(s.amount) || 0,
+      paidAt: (s.paid_at || '').slice(0, 16),
+      st,
+    };
+  });
+  // 伙伴 -> PARTNERS
+  const merchCount = {};
+  FM.forEach((f) => { if (f.pid) merchCount[f.pid] = (merchCount[f.pid] || 0) + 1; });
+  PARTNERS = (pRes.partners || []).map((q) => {
+    const ver = q.contract_ver || 'V1';
+    return {
+      contractVer: ver,
+      rate: ver === 'V2' ? 50 : 30,
+      id: q.id,
+      name: q.name,
+      type: q.type === 'company' ? '企业' : '个人',
+      recordNo: q.contract_no || '',
+      phone: q.phone || '',
+      credit: q.credit_code || '',
+      legal: q.legal_name || '',
+      bank: q.bank_account || '',
+      hasSig: q.sign_status === 'signed',
+      merchants: merchCount[q.id] || 0,
+      sign: q.sign_status || 'unsigned',
+      signTime: q.signed_at || '',
+      status: 'active',
+      lastNew: q.last_new_merchant_at || '',
+      idleDays: 0,
+    };
+  });
+  // 订单 -> FO
+  FO = (oRes.orders || []).map((o) => ({
+    id: o.order_id,
+    mid: o.merchant_id,
+    gw: o.gateway || '',
+    status: o.status,
+    created: (o.created_at || '').slice(0, 16),
+    amount: Number(o.amount) || 0,
+    currency: o.currency || '',
+    method: '',
+    goods: o.description || '',
+    raw: o.status,
+  }));
+  // 通知 -> NOTIFS
+  NOTIFS = (nRes.items || []).map((it) => ({
+    day: '今天', kind: it.key || 'info', read: false,
+    title: it.label || '', desc: it.text || '',
+    amt: '', amtCls: '', oid: '',
+  }));
+  // 日志 -> LOGS
+  LOGS = (lRes.logs || []).map((l) => ({
+    t: (l.created_at || '').slice(0, 16),
+    admin: l.admin_email || '', action: l.action || '',
+    target: l.target || '', reason: l.reason || '',
+  }));
+  // 管理员 -> ADMINS
+  ADMINS = (aRes.admins || []).map((a) => ({
+    id: a.id, email: a.email, role: a.role,
+    created: (a.created_at || '').slice(0, 16),
+  }));
+  TERMINATED = []; SUNK = []; WH = []; PAYOUTS = [];
+}
+
+let subPeriod = 'all';
+function setSubPeriod(k) {
+  subPeriod = k;
+  $('subDue').value = '';
+  const f = $('subFrom'), t = $('subTo');
+  if (k === 'day') { f.value = '2026-10-07'; t.value = '2026-10-07'; }
+  else if (k === 'month') { f.value = '2026-10-01'; t.value = '2026-10-31'; }
+  else if (k === 'all') { f.value = ''; t.value = ''; }
+  renderSubs();
+}
+function setSubSoon() {
+  $('subDue').value = $('subDue').value === 'soon' ? '' : 'soon';
+  renderSubs();
+}
+function toggleSub(e, el) {
+  if (e.target.closest('a,button')) return;
+  el.querySelector('.sub-detail').classList.toggle('open');
+}
+function subNameColor(x) { return ''; }
+function subTypeBadge(x) {
+  const base = 'display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;border-radius:10px;color:#fff;font-weight:700;font-size:12px;padding:0 6px;margin-left:6px;vertical-align:1px';
+  return '<span style="' + base + ';background:var(--green)">终身</span>';
+}
+function fitCardAmounts() {
+  document.querySelectorAll('.cards .v').forEach((el) => {
+    el.style.fontSize = '';
+    let size = parseFloat(getComputedStyle(el).fontSize);
+    while (el.scrollWidth > el.clientWidth + 1 && size > 7.5) {
+      size -= 0.5;
+      el.style.fontSize = size + 'px';
+    }
+  });
+}
+function tedBadge(p) {
+  return p.vip ? '<span style="display:inline-block;min-width:20px;height:20px;line-height:20px;text-align:center;border-radius:10px;color:#fff;font-weight:700;font-size:12px;padding:0 6px;margin-left:6px;vertical-align:1px;background:#e11d48">特</span>' : '';
+}
+function renderSubs() {
+  const active = SUBS.filter((x) => x.st === 'active');
+  const monthIn = SUBS.filter((x) => x.paidAt.startsWith('2026-09')).reduce((t, x) => t + x.amount, 0);
+  const totalIn = SUBS.reduce((t, x) => t + x.amount, 0);
+  const soonOf = (x) => { const days = Math.round((new Date(x.until) - new Date('2026-10-07')) / 86400000); const limit = x.plan === '年付' ? 30 : 7; return x.st === 'active' && days >= 0 && days <= limit; };
+  const soon = active.filter(soonOf).length;
+  const dayIn = SUBS.filter((x) => x.paidAt.startsWith('2026-10-07')).reduce((t, x) => t + x.amount, 0);
+  // 卡片数字从 SUBS 实时计算
+  const _sum = (arr) => arr.reduce((t, x) => t + x.amount, 0);
+  const _day = SUBS.filter((x) => x.paidAt.startsWith('2026-10-07'));
+  const _month = SUBS.filter((x) => x.paidAt.startsWith('2026-10'));
+  const SUB_BASE = [
+    ['day', '当日订阅', _day.length, _sum(_day), ''],
+    ['month', '单月订阅', _month.length, _sum(_month), ''],
+    ['all', '累计订阅', SUBS.length, _sum(SUBS), ''],
+  ];
+  const _act = SUBS.filter(x => x.st === 'active');
+  const _exp = SUBS.filter(x => x.st === 'expired');
+  // 累计卡片下方加注生效/过期
+  const pc = (k, name, n, amt) => {
+    const extra = '';
+    return `<div class="card clickable${subPeriod === k ? ' sel' : ''}" onclick="setSubPeriod('${k}')"><div class="k">${name}(${n})</div><div class="v">$${amt.toFixed(2)}</div>${extra}</div>`;
+  };
+  $('subCards').innerHTML = SUB_BASE.map((b) => pc(b[0], b[1], b[2], b[3])).join('')
+
+  const q = ($('subQ').value || '').trim().toLowerCase();
+  const tp = $('subType').value;
+  const du = $('subDue').value;
+  const dFrom = $('subFrom').value, dTo = $('subTo').value;
+  const rows = SUBS.filter((x) => {
+    if (q && !(x.name.toLowerCase().includes(q) || (x.email || '').toLowerCase().includes(q))) return false;
+    if (tp === 'year' && x.plan !== '年付') return false;
+    if (tp === 'month' && x.plan !== '月付') return false;
+    if (du === 'active' && x.st !== 'active') return false;
+    if (du === 'expired' && x.st !== 'expired') return false;
+    if (du === 'soon' && !soonOf(x)) return false;
+    const d = x.paidAt.slice(0, 10);
+    if (dFrom && d < dFrom) return false;
+    if (dTo && d > dTo) return false;
+    return true;
+  });
+  const empty = '<div class="subs-item" style="text-align:center;color:var(--muted)">没有符合条件的订阅</div>';
+  $('subList').innerHTML = rows.length ? rows.map((x) => `<div class="subs-item" onclick="toggleSub(event,this)"${soonOf(x) ? ' style="background:#fff8ec"' : ''}><div class="srow"><span class="l1">${esc(x.name)}${subTypeBadge(x)}</span><b class="samt">$${x.amount.toFixed(2)}</b></div><div style="font-size:12px;color:var(--muted);margin-top:2px">${esc(x.email || '')}</div><div class="sub-detail"><div class="l3"><a href="mailto:${esc(x.email)}">${esc(x.email)}</a> · 收款：${esc(x.method)}<br>购买 ${esc(x.paidAt.slice(0, 10))}（终身）</div></div></div>`).join('') : empty;
+  $('subRows').innerHTML = rows.length ? rows.map((x) => `<tr${soonOf(x) ? ' style="background:#fff8ec"' : ''}><td>${esc(x.name)}${subTypeBadge(x)}<br><a href="mailto:${esc(x.email)}" style="font-size:12px;color:var(--muted)">${esc(x.email)}</a></td><td>$${x.amount.toFixed(2)}</td><td>${esc(x.method)}</td><td>${esc(x.paidAt)}</td><td>${esc(x.until)}</td><td>'<span class="tag ok">生效中</span>'</td></tr>`).join('') : '<tr><td colspan="6" style="text-align:center;color:var(--muted)">没有符合条件的订阅</td></tr>';
+}
+/* ===== 总览 ===== */
+/* ===== 法币商户 ===== */
+let fmFilter = 'all';
+function freezeBtn(m) {
+  return m.frozen
+    ? `<button class="btn sm ghost" onclick="askUnfreeze('${m.id}')">解冻</button>`
+    : `<button class="btn sm danger" onclick="askFreeze('${m.id}')">冻结</button>`;
+}
+function findMerchant(id) { return FM.find((m) => m.id === id); }
+function renderFM() {
+  const n = (fn) => FM.filter(fn).length;
+  const fiatToday = FO.filter((o) => o.status === 'paid' && o.created.startsWith(TODAY)).reduce((s, o) => s + o.amount, 0);
+  // 商户统计口径：注册商户 = 已订阅(含冻结) + 未订阅；收单通道只统计订阅用户
+  // 数字从 FM 实际数据计算，不再写死
+  const M_REG = FM.length;
+  const M_SUB = n((m) => m.sub.st === 'active');
+  const M_UNSUB = n((m) => m.sub.st !== 'active');
+  const M_FROZEN = n((m) => m.frozen);
+  const M_ANTOM = n((m) => m.antom === 'active' && m.sub.st === 'active');
+  const M_AIRWALLEX = n((m) => m.airwallex === 'active' && m.sub.st === 'active');
+  const M_DUAL = n((m) => m.antom === 'active' && m.airwallex === 'active' && m.sub.st === 'active');
+  const defs = [
+    ['all', '注册商户', M_REG, '', 0],
+    ['subbed', '已订阅', M_SUB, '', 0],
+    ['antom', 'Antom', M_ANTOM, '', 0],
+    ['airwallex', 'Airwallex', M_AIRWALLEX, '', 0],
+    ['dual', '双通道', M_DUAL, 'teal', 0],
+    ['frozen', '已冻结', M_FROZEN, 'red', 0],
+    ['unsub', '未订阅', M_UNSUB, 'muted', 0],
+  ];
+  $('fmCards').innerHTML = defs.map((d) => d[4]
+    ? `<div class="card"><div class="k">${d[1]}</div><div class="v ${d[3]}">${d[2]}</div></div>`
+    : `<div class="card clickable ${fmFilter === d[0] ? 'sel' : ''}" onclick="fmFilter='${d[0]}';renderFM()"><div class="k">${d[1]}</div><div class="v ${d[3]}">${d[2]}</div></div>`).join('');
+  const list = FM.filter((m) => fmFilter === 'all' ? true : fmFilter === 'subbed' ? m.sub.st === 'active' : fmFilter === 'unsub' ? m.sub.st !== 'active' : fmFilter === 'antom' ? (m.antom === 'active' && m.sub.st === 'active') : fmFilter === 'airwallex' ? (m.airwallex === 'active' && m.sub.st === 'active') : fmFilter === 'dual' ? (m.antom === 'active' && m.airwallex === 'active' && m.sub.st === 'active') : m.frozen);
+  $('fmTitle').textContent = {all:'全部注册商户', subbed:'已订阅商户', antom:'Antom 商户', airwallex:'Airwallex 商户', dual:'双通道商户', frozen:'已冻结商户', unsub:'未订阅商户'}[fmFilter];
+  $('fmRows').innerHTML = list.map((m) => `<tr>
+    <td><a class="mname" href="mailto:${esc(m.email)}">${esc(m.name)}</a><br><span style="font-size:12px;color:var(--muted)">${esc(m.email)}</span></td>
+    <td>${chanTag(m.antom)}</td><td>${chanTag(m.airwallex)}</td><td>${routeTag(m.route)}</td><td>${subTag(m.sub)}</td>
+    <td>${m.frozen ? '<span class="tag bad">已冻结</span>' : '<span class="tag ok">正常</span>'}</td>
+    <td>${m.created}</td><td>${freezeBtn(m)}</td></tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:26px">暂无商户</td></tr>';
+  $('fmList').innerHTML = list.map((m) => `<div class="subs-item" onclick="toggleSub(event,this)"><div class="srow"><span class="l1">${esc(m.name)}${m.sub && m.sub.st !== 'none' ? subTypeBadge({st:m.sub.st, plan:subPlanOf(m.email)}) : ''}</span></div><div class="l2" style="font-size:12px;color:var(--muted);margin-top:2px">${esc(m.email || '')}</div><div class="sub-detail"><div class="m-kv"><span class="k">通道</span><span class="v">Antom ${chanTag(m.antom)}　Airwallex ${chanTag(m.airwallex)}</span></div><div class="m-kv"><span class="k">路由</span><span class="v">${routeTag(m.route)}</span></div><div class="m-kv"><span class="k">订阅</span><span class="v">${subTag(m.sub)}</span></div><div class="m-kv"><span class="k">状态</span><span class="v">${m.frozen ? '<span class="tag bad">已冻结</span>' : '<span class="tag ok">正常</span>'}　<span style="color:var(--muted)">注册 ${esc((m.created||'').slice(0,10))}</span></span></div><div class="m-act" onclick="event.stopPropagation()">${freezeBtn(m)}</div></div></div>`).join('') || '<div style="text-align:center;color:var(--muted);padding:26px">暂无商户</div>';
+}
+
+const routeTag = (r) => r === 'smart' ? '<span class="tag info">智能路由</span>' : r === 'antom' ? '<span class="tag">固定走 Antom</span>' : r === 'airwallex' ? '<span class="tag">固定走 Airwallex</span>' : '<span style="color:var(--muted)">—</span>';
+/* ===== 冻结/解冻 ===== */
+let freezeTarget = null, unfreezeTarget = null;
+function askFreeze(id) {
+  freezeTarget = findMerchant(id);
+  $('freezeReason').value = ''; $('freezeErr').textContent = '';
+  $('freezeStep1').hidden = false; $('freezeStep2').hidden = true;
+  $('freezeMName').textContent = freezeTarget.name;
+  $('freezeModal').classList.add('open');
+}
+function freezeNext() {
+  const r = $('freezeReason').value.trim();
+  if (!r) { $('freezeErr').textContent = '冻结原因必填'; return; }
+  $('freezeMReason').textContent = r;
+  $('freezeStep1').hidden = true; $('freezeStep2').hidden = false;
+}
+function freezeBack() { $('freezeStep1').hidden = false; $('freezeStep2').hidden = true; }
+async function doFreeze() {
+  const reason = $('freezeReason').value.trim();
+  if (!reason) { alert('冻结原因必填'); return; }
+  try {
+    const r = await fetch('/api/admin/merchants/' + encodeURIComponent(freezeTarget.id) + '/freeze', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '冻结失败');
+    freezeTarget.frozen = true;
+    closeModal('freezeModal');
+    await loadAllData();
+    LOADERS[curPage]();
+  } catch (e) { alert(e.message); }
+}
+function askUnfreeze(id) {
+  unfreezeTarget = findMerchant(id);
+  $('unfreezeMName').textContent = unfreezeTarget.name;
+  $('unfreezeModal').classList.add('open');
+}
+async function doUnfreeze() {
+  try {
+    const r = await fetch('/api/admin/merchants/' + encodeURIComponent(unfreezeTarget.id) + '/unfreeze', {
+      method: 'POST', credentials: 'include',
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '解冻失败');
+    unfreezeTarget.frozen = false;
+    closeModal('unfreezeModal');
+    await loadAllData();
+    LOADERS[curPage]();
+  } catch (e) { alert(e.message); }
+}
+
+/* ===== 经营简报 / 收款统计（与商户门户同格式） ===== */
+const YMD = '2026-10-01';
+function sumByCurStr(list) {
+  const by = {};
+  list.forEach((o) => { by[o.currency] = (by[o.currency] || 0) + o.amount; });
+  const sym = {CNY:'¥', USD:'$'};
+  return Object.keys(by).map((k) => (sym[k] || (k + ' ')) + money(by[k])).join(' · ');
+}
+function briefCardHtml() {
+  const y = FO.filter((o) => o.created.startsWith(YMD));
+  const paid = y.filter((o) => o.status === 'paid');
+  const rf = y.filter((o) => o.status === 'refunded');
+  const fail = y.filter((o) => o.status === 'failed');
+  return `<div class="brief-card" style="cursor:pointer" onclick="openBriefDetail()"><div class="bt">10月6日经营简报<span style="float:right;opacity:.85">明细 ›</span></div>
+    <div class="bn">${sumByCurStr(paid) || '¥0.00'}</div>
+    <div class="bd">收款 ${paid.length} 笔 · 退款 ${rf.length} 笔${rf.length ? ' ' + sumByCurStr(rf) : ''} · 失败 ${fail.length} 笔</div></div>`;
+}
+function renderAdmBrief() { $('admBrief').innerHTML = briefCardHtml(); }
+function renderAdmStats() {
+  const paid = FO.filter((o) => o.status === 'paid');
+  const byPay = {}, byCh = {};
+  paid.forEach((o) => { byPay[o.method || '其他'] = (byPay[o.method || '其他'] || 0) + 1; byCh[o.gw] = (byCh[o.gw] || 0) + 1; });
+  const maxP = Math.max(1, ...Object.values(byPay)), maxC = Math.max(1, ...Object.values(byCh));
+  let h = '<div class="od-t" style="margin-bottom:4px">按支付方式</div>';
+  Object.keys(byPay).forEach((k) => { h += `<div class="stat-bar"><span class="lb">${esc(k)}</span><span class="tr"><span class="fl" style="width:${Math.round(byPay[k] / maxP * 100)}%"></span></span><span class="vl">${byPay[k]} 笔</span></div>`; });
+  h += '<div class="od-t" style="margin:12px 0 4px">按收单机构</div>';
+  Object.keys(byCh).forEach((k) => { h += `<div class="stat-bar"><span class="lb">${esc(k)}</span><span class="tr"><span class="fl" style="width:${Math.round(byCh[k] / maxC * 100)}%"></span></span><span class="vl">${byCh[k]} 笔</span></div>`; });
+  const dc = {};
+  paid.forEach((o) => { const d = o.created.slice(0, 10); dc[d] = (dc[d] || 0) + 1; });
+  const maxD = Math.max(1, ...Object.values(dc));
+  let cols = '';
+  for (let i = 6; i >= 0; i--) {
+    const dt = new Date(2026, 9, 2 - i);
+    const ds = '2026-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+    const c = dc[ds] || 0;
+    cols += `<div class="day-col"><div class="b" style="height:${Math.max(3, Math.round(c / maxD * 80))}px"></div><div class="d">${dt.getMonth() + 1}/${dt.getDate()}</div></div>`;
+  }
+  h += '<div class="od-t" style="margin:12px 0 4px">每日收款笔数</div><div class="day-cols">' + cols + '</div>';
+  $('admStats').innerHTML = h;
+}
+function openBriefDetail() {
+  const y = FO.filter((o) => o.created.startsWith(YMD));
+  const groups = [['收款', 'paid'], ['退款', 'refunded'], ['失败', 'failed']];
+  let h = '';
+  groups.forEach(([label, st]) => {
+    const gs = y.filter((o) => o.status === st);
+    h += `<div class="od-t" style="margin:10px 0 4px">${label} ${gs.length} 笔</div>`;
+    h += gs.length ? gs.map((o) => {
+      const dt = o.created.slice(5, 7).replace(/^0/, '') + '月' + o.created.slice(8, 10).replace(/^0/, '') + '日 ' + o.created.slice(11, 16);
+      return `<div class="orow" onclick="closeModal('briefDetailModal');showOrder('f','${o.id}')">
+        <span class="o-ico">${payIconAdm(o.method)}</span>
+        <span class="o-mid"><span class="o-pay">${esc(o.method || '—')}</span><span class="o-sub">${esc(mName(FM, o.mid))} · ${dt} · ${esc(o.gw)}</span></span>
+        <span class="o-right"><span class="o-amt">${money(o.amount)} ${esc(o.currency)}</span></span>
+      </div>`; }).join('') : '<div style="color:var(--muted);font-size:13px;padding:4px 0">无</div>';
+  });
+  $('briefDetailBody').innerHTML = h;
+  $('briefDetailModal').classList.add('open');
+}
+
+/* ===== 法币订单 ===== */
+const sel = {f:'', s:''};
+function inRange(created, range, start, end) {
+  const d = created.slice(0, 10);
+  if (!range) return true;
+  if (range === 'today') return d === TODAY;
+  if (range === '7d') return d >= '2026-09-26';
+  if (range === '30d') return d >= '2026-09-02';
+  if (range === 'custom') { if (start && d < start) return false; if (end && d > end) return false; return true; }
+  return true;
+}
+function bindSearch(p, merchants, loader) {
+  const input = $(p + 'q'), drop = $(p + 'qDrop');
+  const render = () => {
+    const kw = input.value.trim().toLowerCase();
+    const list = merchants.filter((m) => !kw || m.name.toLowerCase().includes(kw) || m.email.toLowerCase().includes(kw));
+    drop.innerHTML = list.length ? list.slice(0, 30).map((m) => `<div class="opt" data-id="${m.id}"><div>${esc(m.name)}</div><div class="e">${esc(m.email)}</div></div>`).join('') : '<div class="empty">没有匹配的商户</div>';
+    drop.classList.add('open');
+    drop.querySelectorAll('.opt').forEach((el) => { el.onclick = () => {
+      sel[p] = el.dataset.id;
+      input.value = '';
+      const m = merchants.find((x) => x.id === sel[p]);
+      $(p + 'ChipWrap').innerHTML = `<span class="chip">${esc(m.name)}<button onclick="clearChip('${p}')" title="取消选择">×</button></span>`;
+      drop.classList.remove('open');
+      loader();
+    };});
+  };
+  input.addEventListener('focus', render);
+  input.addEventListener('input', () => { if (sel[p] && input.value.trim()) { sel[p] = ''; $(p + 'ChipWrap').innerHTML = ''; } render(); });
+  document.addEventListener('click', (e) => { if (!e.target.closest('.msel')) drop.classList.remove('open'); });
+}
+function clearChip(p) { sel[p] = ''; $(p + 'ChipWrap').innerHTML = ''; loadFiatOrders(); }
+function filterOrders(p, orders) {
+  const gw = $('fGw') ? $('fGw').value : '';
+  const q = ($('fq') && $('fq').value || '').trim().toLowerCase();
+  return orders.filter((o) => {
+    if (sel[p] && o.mid !== sel[p]) return false;
+    if (gw && o.gw !== gw) return false;
+    if (q && !(mName(FM, o.mid).toLowerCase().includes(q))) return false;
+    const d = o.created.slice(0, 10);
+    const s = $('foStart') ? $('foStart').value : '', e = $('foEnd') ? $('foEnd').value : '';
+    if (foPeriod === 'total' || (!s && !e)) return true;
+    if (s && d < s) return false;
+    if (e && d > e) return false;
+    return true;
+  });
+}
+let foPeriod = 'month';
+let foStatus = '';
+function setFoPeriod(p) {
+  foPeriod = p;
+  const s = $('foStart'), e = $('foEnd');
+  if (p === 'day') { s.value = '2026-10-07'; e.value = '2026-10-07'; }
+  else if (p === 'month') { s.value = '2026-10-01'; e.value = '2026-10-31'; }
+  else if (p === 'total') { s.value = ''; e.value = ''; }
+  document.querySelectorAll('#foPeriodBtns button').forEach((b) => b.classList.toggle('sel', b.dataset.p === p));
+  loadFiatOrders();
+}
+function setFoCustom() {
+  foPeriod = 'custom';
+  document.querySelectorAll('#foPeriodBtns button').forEach((b) => b.classList.remove('sel'));
+  loadFiatOrders();
+}
+// 演示聚合数据（单月口径），筛选时按比例折算
+function renderFoCards() {
+  const gw = $('fGw').value;
+  // 从 FO 实时计算，不再用假数字；多币种分开统计不直接相加
+  const _fo = FO.filter((o) => {
+    if (gw && o.gw !== gw) return false;
+    if (foPeriod === 'day' && !o.created.startsWith('2026-10-07')) return false;
+    if (foPeriod === 'month' && !o.created.startsWith('2026-10')) return false;
+    if (foPeriod === 'custom') {
+      const s = $('foStart').value, e = $('foEnd').value;
+      const d = o.created.slice(0, 10);
+      if (s && d < s) return false;
+      if (e && d > e) return false;
+    }
+    return true;
+  });
+  const _cnt = (st) => _fo.filter((o) => o.status === st).length;
+  const _amt = (st) => {
+    const rs = _fo.filter((o) => o.status === st);
+    const cny = rs.filter((o) => o.currency === 'CNY').reduce((t, o) => t + o.amount, 0);
+    const usd = rs.filter((o) => o.currency === 'USD').reduce((t, o) => t + o.amount, 0);
+    const parts = [];
+    if (cny > 0) parts.push('¥' + cny.toFixed(2));
+    if (usd > 0) parts.push('$' + usd.toFixed(2));
+    return parts.join(' + ') || '—';
+  };
+  const _cards = [
+    ['已支付', _cnt('paid'), _amt('paid'), '', 'paid'],
+    ['待支付', _cnt('pending_pay'), _amt('pending_pay'), '', 'pending_pay'],
+    ['支付中', _cnt('paying'), _amt('paying'), 'gold', 'paying'],
+    ['已取消', _cnt('cancelled'), _amt('cancelled'), 'muted', 'cancelled'],
+    ['已退款', _cnt('refunded'), _amt('refunded'), 'orange', 'refunded'],
+  ];
+  $('foCards').innerHTML = _cards.map((c) => `<div class="card clickable${foStatus===c[4]?' sel':''}" onclick="foStatus=foStatus===c[4]?'':c[4];loadFiatOrders()"><div class="k">${c[0]}(${c[1]})</div><div class="v ${c[3]}" style="font-size:15px">${c[2]}</div></div>`).join('');
+  fitCardAmounts();
+}
+function loadFiatOrders() {
+  try {
+  renderFoCards();
+  renderAdmBrief();
+  renderAdmStats();
+  const list = filterOrders('f', FO).filter((o) => !foStatus || o.status === foStatus);
+  const groups = {};
+  list.forEach((o) => { const d = o.created.slice(0, 10); (groups[d] = groups[d] || []).push(o); });
+  const days = Object.keys(groups).sort().reverse();
+  let html = '';
+  days.forEach((d) => {
+    const gs = groups[d];
+    html += gs.map(foCard).join('');
+  });
+  $('foRows').innerHTML = html || '<div style="text-align:center;color:var(--muted);padding:26px">暂无订单</div>';
+  } catch(e) {
+    const msg = String(e.message||e).slice(0,200);
+    const ec = document.getElementById('foCards');
+    if (ec) ec.innerHTML = '<div class="card"><div class="k">加载出错</div><div class="v" style="font-size:12px;color:#e11d48">' + msg + '</div></div>';
+    const er = document.getElementById('foRows');
+    if (er) er.innerHTML = '<div style="text-align:center;color:#e11d48;padding:26px">加载失败: ' + msg + '</div>';
+  }
+}
+const FO_ST = {paid:['已支付','ok'], pending_pay:['待支付','mut'], paying:['支付中','warn'], failed:['已失败','bad'], cancelled:['已取消','mut'], refunded:['已退款','out']};
+function payIconAdm(pay) {
+  const p = String(pay || '');
+  if (p.includes('支付宝')) return '🅰️';
+  if (p.includes('微信')) return '💬';
+  if (p.includes('银联')) return '💳';
+  if (/Visa|万事达|Mastercard|尾号/i.test(p)) return '💳';
+  return '💰';
+}
+function foCard(o) {
+  const isRf = o.status === 'refunded';
+  const st = FO_ST[o.status] || [o.status, 'mut'];
+  const amtHtml = isRf ? `<span class="o-amt out">↩ +${money(o.amount)} ${esc(o.currency)}</span>` : `<span class="o-amt">${money(o.amount)} ${esc(o.currency)}</span>`;
+  const dt = o.created.slice(5, 7).replace(/^0/, '') + '月' + o.created.slice(8, 10).replace(/^0/, '') + '日 ' + o.created.slice(11, 16);
+  return `<div class="orow" onclick="showOrder('f','${o.id}')">
+    <span class="o-ico">${payIconAdm(o.method)}</span>
+    <span class="o-mid"><span class="o-pay">${esc(o.method || '—')}</span><span class="o-sub">${esc(mName(FM, o.mid))} · ${dt} · ${esc(o.gw)}</span></span>
+    <span class="o-right">${amtHtml}<span class="o-st ${st[1]}">${st[0]}</span></span>
+  </div>`;
+}
+function dayLabel(d) {
+  if (d === TODAY) return d + ' · 今天';
+  const diff = Math.round((new Date(TODAY) - new Date(d)) / 86400000);
+  if (diff === 1) return d + ' · 昨天';
+  return d;
+}
+function sumStr(list, st) {
+  const by = {};
+  list.filter((o) => o.status === st).forEach((o) => { by[o.currency] = (by[o.currency] || 0) + o.amount; });
+  const ks = Object.keys(by);
+  return ks.length ? ks.map((k) => money(by[k]) + ' ' + k).join(' · ') : '—';
+}
+function netStr(m) {
+  const inc = {}, out = {};
+  m.filter((o) => o.status === 'paid').forEach((o) => { inc[o.currency] = (inc[o.currency] || 0) + o.amount; });
+  m.filter((o) => o.status === 'refunded').forEach((o) => { out[o.currency] = (out[o.currency] || 0) + o.amount; });
+  const ks = [...new Set([...Object.keys(inc), ...Object.keys(out)])];
+  return ks.length ? ks.map((k) => money((inc[k] || 0) - (out[k] || 0)) + ' ' + k).join(' · ') : '—';
+}
+function orderTimeline(o) {
+  const L = [{t:o.created, e:'订单创建'}];
+  if (o.status !== 'pending_pay') L.push({t:o.created, e:'用户提交支付'});
+  const fin = {paying:'通道处理中', paid:'支付成功', failed:'支付失败', cancelled:'用户取消 / 超时取消', refunded:'已退款（商户在通道后台发起，同步展示）'}[o.status];
+  if (fin) L.push({t:o.created, e:fin});
+  return L;
+}
+function showOrder(p, id) {
+  const o = FO.find((x) => x.id === id);
+  if (!o) return;
+  const m = FM.find((x) => x.id === o.mid) || {};
+  const tl = orderTimeline(o).map((e) => `<div style="display:flex;gap:10px"><span style="color:var(--muted);white-space:nowrap">${e.t}</span><span>${e.e}</span></div>`).join('');
+  $('orderDetail').innerHTML = `
+    <div id="odTop" style="font-weight:700;margin:8px 0 2px">基本信息</div>
+    <div>订单号：<b style="font-family:monospace">${esc(o.id)}</b><br>下单时间：${o.created}<br>商品：${esc(o.goods || '—')}<br>所属商户：${esc(m.name || o.mid)}</div>
+    <div style="font-weight:700;margin:8px 0 2px">支付信息</div>
+    <div>金额：<b>${money(o.amount)} ${esc(o.currency)}</b><br>支付方式：${esc(o.method || '—')}<br>订单状态：${statusTag(o.status)}</div>
+    <div style="font-weight:700;margin:8px 0 2px">通道信息</div>
+    <div>收单机构：${esc(o.gw)}<br>通道原始状态：<code style="font-size:12px">${esc(o.raw || '—')}</code> <span style="color:var(--muted);font-size:12px">（备查）</span></div>
+    ${o.status === 'refunded' ? `
+    <div style="font-weight:700;margin:8px 0 2px">退款信息 <a style="font-size:12px;font-weight:400;color:var(--teal-dark);cursor:pointer" onclick="scrollModalTo('odTop')">↑ 查看原支付信息</a></div>
+    <div>退款单号：<b style="font-family:monospace">RF-${esc(o.id)}</b><br>退款时间：${esc(o.rfTime || o.created)}<br>退款方式：<b style="color:#c2410c">原路返回 · ${esc(o.method || '—')}</b><br>退款状态：<span class="tag ok">已退款</span></div>` : ''}
+    <div style="font-weight:700;margin:8px 0 2px">操作日志</div>
+    <div style="line-height:2">${tl}</div>
+    ${o.status === 'refunded' ? '<div class="note">商户可从 Jirvs 商户门户发起退款，Jirvs 仅透传收单机构退款 API；总后台只读，不提供退款操作。</div>' : ''}`;
+  $('orderModal').classList.add('open');
+}
+
+/* ===== Webhook 日志 ===== */
+let WH = [];
+const whTag = (r) => ({ok:'<span class="tag ok">成功</span>', retry:'<span class="tag warn">重试</span>', fail:'<span class="tag bad">失败</span>'}[r] || esc(r));
+function renderWH() {
+  const gw = $('wGw').value, res = $('wRes').value;
+  const list = WH.filter((w) => (!gw || w.gw === gw) && (!res || w.res === res));
+  $('whRows').innerHTML = list.map((w) => `<tr>
+    <td style="font-family:monospace">${w.t}</td><td>${esc(w.gw)}</td>
+    <td style="font-family:monospace">${esc(w.ev)}</td><td style="font-family:monospace">${esc(w.oid)}</td>
+    <td>${whTag(w.res)}</td><td>${w.ms} ms</td>
+    <td>${w.res === 'fail' ? `<button class="btn sm ghost" onclick="replayWh('${w.t}')">重放</button>` : '<span style="color:var(--muted)">—</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:26px">暂无记录</td></tr>';
+}
+function replayWh(t) { alert('演示环境：已模拟重放该 Webhook（' + t + '），通道返回成功。'); }
+
+/* ===== 分润结算 ===== */
+let profitPeriod = 'day';
+function setPeriod(p) {
+  profitPeriod = p;
+  document.querySelectorAll('#profitTabs button[data-p]').forEach((b) => b.classList.toggle('active', b.dataset.p === p));
+  $('profitCustom').style.display = p === 'custom' ? 'inline' : 'none';
+  renderProfit();
+}
+function periodFilter(o) {
+  const d = o.created.slice(0, 10);
+  if (profitPeriod === 'day') return d === TODAY;
+  if (profitPeriod === 'month') return d >= '2026-10-01';
+  if (profitPeriod === 'custom') { const s = $('pStart').value, e = $('pEnd').value; if (s && d < s) return false; if (e && d > e) return false; return true; }
+  return true;
+}
+function sumByCur(orders, rate) {
+  const by = {};
+  orders.filter((o) => o.status === 'paid' && periodFilter(o)).forEach((o) => { by[o.currency] = (by[o.currency] || 0) + o.amount * (rate || 1); });
+  return by;
+}
+const curLine = (by) => { const ks = Object.keys(by); return ks.length ? ks.map((k) => money(by[k]) + ' ' + k).join(' / ') : '—'; };
+function subMonthlyFee(m) { return m.sub.plan === 'year' ? 199 / 12 : 29.9; }
+function renderProfit() {
+  const fv = sumByCur(FO, 1), fc = sumByCur(FO, 0.008);
+  const pName = {day:'当天', month:'当月', all:'累计', custom:'自选'}[profitPeriod];
+  $('profitTop').innerHTML = `
+    <div class="big-card"><div class="k">总交易额（${pName}）</div><div class="row2">
+      <div class="cell"><div class="n">${curLine(fv)}</div><div class="t">法币 · Antom / Airwallex</div></div>
+    </div></div>
+    <div class="big-card"><div class="k">总分润额（${pName}）</div><div class="row2">
+      <div class="cell"><div class="n" style="color:var(--teal-dark)">${curLine(fc)}</div><div class="t">法币</div></div>
+    </div></div>`;
+  $('profitNote').textContent = '分润为通道费汇总口径（Antom / Airwallex 机构返佣）；订阅收入见「订阅收入」页，佣金支出见「生态管理」页，三账分开。';
+}
+function exportProfit() {
+  const rows = [['类型', '币种', '金额']];
+  const add = (label, by) => Object.keys(by).forEach((k) => rows.push([label, k, by[k].toFixed(2)]));
+  add('法币交易额', sumByCur(FO, 1)); add('法币分润', sumByCur(FO, 0.008));
+  const csv = '﻿' + rows.map((r) => r.join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = '分润对账单_' + profitPeriod + '_2026-10-02.csv';
+  a.click();
+}
+
+/* ===== 佣金支出 ===== */
+
+function viewPayout(i) {
+  const x = PAYOUTS[i];
+  const cny = ((x.usd - x.fee) * x.rate).toFixed(2);
+  $('payTitle').textContent = '打款明细 · ' + x.name;
+  $('payBody').innerHTML = `<div class="kv">
+    <div>打款日期<b>${esc(x.date)}</b></div><div>收款银行<b>${esc(x.bank)}</b></div>
+    <div>通道费用<b>$${x.fee.toFixed(2)}</b></div><div>汇率<b>${x.rate}</b></div>
+    <div>实际到账<b>¥${cny}</b></div><div>状态<b>已到账</b></div></div>
+    <p class="desc" style="margin:14px 0 8px"><b>佣金构成（本笔）</b></p>
+    <table class="ptable"><thead><tr><th>商户主体</th><th>订阅</th><th>比例</th><th>佣金</th></tr></thead>
+    <tbody>${(x.items || []).map((it) => `<tr><td>${esc(it[0])}</td><td>${esc(it[1])}</td><td>${esc(it[2])}</td><td>${esc(it[3])}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="3" style="text-align:right"><b>佣金合计</b></td><td><b>$${x.usd.toFixed(2)}</b></td></tr></tfoot></table>
+    <p class="desc" style="margin-top:10px">实到金额 =（佣金 − 通道费用）× 汇率，以银行实际到账为准；此明细与导出 CSV 同口径，财务可逐笔对账。</p>`;
+  $('payModal').classList.add('open');
+}
+
+
+let vipEditId = null;
+function openVipSet(id) {
+  const p = PARTNERS.find((x) => x.id === id); vipEditId = id;
+  $('vipSetTitle').textContent = '特批设置 · ' + p.name;
+  $('vipSetBody').innerHTML = `<label style="display:flex;gap:8px;align-items:center;margin:6px 0 12px"><input type="checkbox" id="vsOn" ${p.vip ? 'checked' : ''}> 开通特邀战略合作伙伴（伙伴中心特批卡将点亮）</label>
+
+  <p class="desc" style="margin-top:10px">V1 生态合作伙伴 30% · V2 战略合作伙伴 50%，一次性返佣。签哪个拿哪个。${p.vip && p.vip.signed ? '<br>该伙伴已签署特批协议（' + esc(p.vip.signTime) + '）。' : ''}</p>`;
+  $('vipSetModal').classList.add('open');
+}
+function saveVipSet() {
+  const p = PARTNERS.find((x) => x.id === vipEditId); if (!p) return;
+  const on = $('vsOn').checked;
+  if (on) { p.vip = Object.assign({}, p.vip, { rateM: 40, rateY: 50 }); }
+  else { p.vip = null; }
+  $('vipSetModal').classList.remove('open');
+  renderCommission();
+  toastAdmin(on ? '特批已开通，伙伴中心将点亮特批卡' : '已关闭该伙伴的特批');
+}
+
+function doPayout(pid) {
+  calcCommissions();
+  const p = PARTNERS.find(x => x.id === pid);
+  if (!p || !(p.payable > 0)) { toast('无待打款金额'); return; }
+  const amt = p.payable;
+  if (!confirm(`确认向 ${p.name} 打款 $${amt.toFixed(2)}？\n\n特批费率：月付 ${p.rateM}% / 年付 ${p.rateY}%\n打款后计入累计已付。`)) return;
+  // 把该伙伴所有待打款的订阅标为已付
+  const today = new Date('2026-10-07T00:00:00');
+  const fmByEmail = {};
+  FM.forEach(m => { fmByEmail[m.email] = m; });
+  SUBS.forEach(s => {
+    const m = fmByEmail[s.email];
+    if (!m || m.pid !== pid) return;
+    if (s.commSt === 'paid') return;
+    // 每月5号：打款日<=今天的标为已付
+    const pd = new Date(s.paidAt.replace(' ', 'T'));
+    const day = pd.getDate();
+    let payY = pd.getFullYear(), payM = pd.getMonth() + 1, payD;
+    if (day <= 15) { payM += 1; payD = 1; } else { payM += 1; payD = 15; }
+    if (payM > 12) { payM = 1; payY += 1; }
+    const payDate = new Date(payY, payM - 1, payD);
+    if (payDate <= today) s.commSt = 'paid';
+  });
+  // 加一条打款记录
+  if (typeof PAYOUTS !== 'undefined') {
+    PAYOUTS.unshift({id:'PO'+Date.now(), pid:pid, name:p.name, usd:amt, date:'2026-10-04 12:00', st:'done'});
+  }
+  toast(`已向 ${p.name} 打款 $${amt.toFixed(2)}`);
+  renderCommission();
+  if (typeof renderPayouts === 'function') renderPayouts();
+}
+function viewRebate(id) {
+  const p = PARTNERS.find((x) => x.id === id);
+  const rows = PAYOUTS.map((x, i) => ({ x, i })).filter((r) => r.x.name === p.name);
+  const tot = rows.reduce((t, r) => t + r.x.usd, 0);
+  $('rebateTitle').textContent = '返佣记录 · ' + p.name;
+  $('rebateBody').innerHTML = rows.length ? `<p class="desc">共 ${rows.length} 笔 · 累计打款 <b>$${tot.toFixed(2)}</b>。按每月5号打款：1-15日产生的次月1日打款，16日-月末产生的次月15日打款，同批次合并一笔。</p>`
+    + rows.map((r) => { const x = r.x; return `<div class="subs-item" style="padding:12px 2px">
+      <div class="l1">$${x.usd.toFixed(2)} <span class="tag ok">已到账</span></div>
+      <div class="l3">${esc(x.date)} · ${esc(x.bank)}<br>通道费用 $${x.fee.toFixed(2)} · 汇率 ${x.rate} · 实际到账 <b>¥${((x.usd - x.fee) * x.rate).toFixed(2)}</b></div>
+      <div class="l3" style="margin-top:6px">${(x.items || []).map((it) => `${esc(it[0])} — ${esc(it[1])}${it[2] && it[2] !== '-' ? ' × ' + esc(it[2]) : ''} · ${esc(it[3])}${it[4] ? '（订阅 ' + esc(it[4]) + '）' : ''}`).join('<br>')}<br><b>本笔合计 $${x.usd.toFixed(2)}</b></div>
+    </div>`; }).join('')
+    : '<p class="desc">暂无返佣记录。</p>';
+  $('rebateModal').classList.add('open');
+}
+let ecoFilter = '';
+function setEcoFilter(k) {
+  if (k === 'terminated' || k === 'sunk') { showEcoDetail(k); return; }
+  ecoFilter = (ecoFilter === k) ? '' : k; renderCommission();
+}
+function showEcoDetail(k) {
+  const isTerm = k === 'terminated';
+  const data = isTerm ? TERMINATED : SUNK;
+  const title = isTerm ? '解约商户明细' : '沉淀佣金明细';
+  const rows = data.map((x, i) => isTerm
+    ? `<tr><td>${i+1}</td><td>${esc(x.name)}</td><td>${esc(x.pname)}</td><td>$${x.commission.toFixed(2)}</td><td>${esc(x.termDate)}</td></tr>`
+    : `<tr><td>${i+1}</td><td>${esc(x.pname)}</td><td>$${x.amount.toFixed(2)}</td><td>${esc(x.date)}</td><td>${esc(x.reason)}</td></tr>`).join('');
+  const head = isTerm
+    ? '<tr><th>#</th><th>商户</th><th>推荐伙伴</th><th>佣金</th><th>解约日期</th></tr>'
+    : '<tr><th>#</th><th>伙伴</th><th>金额</th><th>日期</th><th>原因</th></tr>';
+  // 复用通用弹窗
+  let m = document.getElementById('ecoDetailModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'ecoDetailModal';
+    m.className = 'modal-mask';
+    m.innerHTML = '<div class="modal" style="max-width:640px"><div class="modal-h"><h3 id="ecoDetailTitle"></h3><button class="btn sm ghost" onclick="document.getElementById(\'ecoDetailModal\').classList.remove(\'open\')">关闭</button></div><div id="ecoDetailBody" style="padding:0 18px 18px"></div></div>';
+    document.body.appendChild(m);
+    m.addEventListener('click', (e) => { if (e.target === m) m.classList.remove('open'); });
+  }
+  document.getElementById('ecoDetailTitle').textContent = title;
+  document.getElementById('ecoDetailBody').innerHTML = `<div class="tbl-wrap"><table><thead>${head}</thead><tbody>${rows}</tbody></table></div>`;
+  m.classList.add('open');
+}
+
+function calcCommissions() {
+  // 合同第三条：每月5号打款
+  // 1-15日产生的 → 次月1日打款；16日-月末产生的 → 次月15日打款
+  const today = new Date('2026-10-07T00:00:00');
+  PARTNERS.forEach(p => { p.payable = 0; p.paid = 0; p.dormant = 0; p.vault = 0; });
+  const fmByEmail = {};
+  FM.forEach(m => { fmByEmail[m.email] = m; });
+  const pById = {};
+  PARTNERS.forEach(x => { pById[x.id] = x; });
+  // 佣金直接计入待打款
+  PARTNERS.forEach(p => {
+    if (p.sign === 'terminated') { p.payable = 0; p.vault = 0; p.terminated = true; return; }
+    if (p.sign !== 'signed') return;
+    p.inVault = (p.idleDays || 0) >= 90;
+  });
+  SUBS.forEach(s => {
+    const m = fmByEmail[s.email];
+    if (!m || !m.pid) return;
+    const pt = pById[m.pid];
+    if (!pt || (pt.sign !== 'signed' && pt.sign !== 'terminated')) return;
+    if (pt.sign === 'terminated' && s.commSt !== 'paid') return; // 已解约未结算清零
+    const rate = pt.rate || (pt.contractVer === 'V2' ? 50 : 30);
+    const comm = Math.round(s.amount * rate) / 100;
+    if (s.commSt === 'paid') { pt.paid += comm; return; }
+    pt.payable += comm;
+  });
+  PARTNERS.forEach(p => {
+    p.payable = Math.round(p.payable * 100) / 100;
+    p.paid = Math.round(p.paid * 100) / 100;
+    p.dormant = Math.round((p.dormant || 0) * 100) / 100;
+    p.vault = Math.round((p.vault || 0) * 100) / 100;
+    // 兼容旧字段：dormant显示用vault
+    if (p.vault > 0) p.dormant = p.vault;
+  });
+}
+function renderCommission() {
+  calcCommissions();
+  const payable = PARTNERS.filter((x) => x.sign === 'signed').reduce((s, p) => s + p.payable, 0);
+  const paid = PARTNERS.filter((x) => x.sign === 'signed').reduce((s, p) => s + p.paid, 0);
+  const dormant = PARTNERS.filter((x) => x.sign === 'signed').reduce((s, p) => s + (p.dormant || 0), 0);
+  const referred = PARTNERS.filter((x) => x.sign === 'signed').reduce((s, p) => s + p.merchants, 0);
+  const totalRebate = paid + payable + dormant;
+  const dormantCount = PARTNERS.filter((x) => x.sign === 'signed' && x.status === 'withdrawFrozen').length;
+  $('cCards').innerHTML = [
+    ['all', '生态伙伴', PARTNERS.length, ''], ['referred', '推荐用户(' + referred + ')', usd(SUBS.filter((x) => { const fm = FM.find((m) => m.name === x.name); return fm && fm.pid; }).reduce((t, x) => t + x.amount, 0)), ''],
+    ['payableAll', '总应返佣', usd(totalRebate), ''], ['paid', '累计已付', usd(paid), 'teal'], ['payable', '待打款', usd(payable), 'orange'],
+  ].map((c) => `<div class="card clickable${ecoFilter === c[0] ? ' sel' : ''}" onclick="setEcoFilter('${c[0]}')"><div class="k">${c[1]}</div><div class="v ${c[3]}">${c[2]}</div></div>`).join('');
+  fitCardAmounts();
+  const ecoRows = PARTNERS.filter((p) => {
+    const signed = p.sign === 'signed';
+    if (ecoFilter === 'referred') return signed && (p.merchants || 0) > 0;
+    if (ecoFilter === 'dormant') return signed && p.status === 'withdrawFrozen';
+    if (ecoFilter === 'paid') return signed && (p.paid || 0) > 0;
+    if (ecoFilter === 'payable' || ecoFilter === 'payableAll') return signed && (p.payable || 0) > 0;
+    return true;
+  });
+  $('cList').innerHTML = ecoRows.map((p) => `<div class="subs-item" onclick="toggleSub(event,this)"><div class="srow"><span class="l1">${esc(p.name)}${tedBadge(p)}${(p.sign==='terminated'||p.status==='terminated')?'<span class="tag bad" style="margin-left:4px">已解约</span>':''} <span style="font-weight:400;color:var(--muted);font-size:12px">${esc(p.type)}</span></span>${p.sign === 'signed' ? `<b class="samt">${usd(p.payable)}</b>` : ''}</div>${p.sign === 'signed' ? `<div style="font-size:12px;color:var(--muted);margin-top:2px">推荐 ${p.merchants} 家</div>` : ''}<div class="sub-detail"><div class="l2">${vipSub(p)}${pStatusTag(p)}${p.sign === 'signed' ? `<span>推荐 ${p.merchants} 家</span>` : ''}</div><div class="l3">${p.sign === 'signed' ? `待打款 <b>${usd(p.payable)}</b> · 累计已付 ${usd(p.paid)} · 最近新增 ${esc(p.lastNew)}<br>` : ''}<button class="btn sm ghost" onclick="viewAgr('${p.id}')">查看协议</button>${p.sign === 'signed' ? ` <button class="btn sm ghost" onclick="viewRebate('${p.id}')">返佣记录</button> <button class="btn sm ghost" onclick="openVipSet('${p.id}')">特批设置</button>` : ''}</div></div></div>`).join('');
+  $('cRows').innerHTML = ecoRows.map((p) => `<tr>
+    <td><b>${esc(p.name)}</b>${tedBadge(p)}${vipSub(p)}</td><td>${esc(p.type)}</td>
+    <td>${pStatusTag(p)}</td>
+    <td>${p.sign === 'signed' ? p.merchants + ' 家' : '—'}</td><td>${esc(p.lastNew)}${p.idleDays ? `<div style="font-size:11px;color:var(--muted);margin-top:3px">已 ${p.idleDays} 天无新增</div>` : ''}</td>
+    <td>${p.sign === 'signed' ? '<b>' + usd(p.payable) + '</b>' : '—'}</td><td>${p.sign === 'signed' ? usd(p.paid) : '—'}</td>
+    <td>${p.payable > 0 ? '<span class="tag warn">待打款</span>' : '<span class="tag ok">已打款</span>'}</td>
+    <td style="white-space:normal"><button class="btn sm ghost" onclick="viewAgr('${p.id}')">查看协议</button>${p.sign === 'signed' ? ` <button class="btn sm ghost" onclick="viewRebate('${p.id}')">返佣记录</button> <button class="btn sm ghost" onclick="openVipSet('${p.id}')">特批设置</button>` : ''}</td></tr>`).join('');
+}
+function renderPayouts() {
+  const tot = PAYOUTS.reduce((t, x) => t + x.usd, 0);
+  const month = PAYOUTS.filter((x) => x.date.startsWith('2026-09')).reduce((t, x) => t + x.usd, 0);
+  $('pCards').innerHTML = [
+    ['累计打款', '$' + tot.toFixed(2), ''], ['本月打款', '$' + month.toFixed(2), ''],
+    ['打款笔数', PAYOUTS.length + ' 笔', ''], ['异常打款', '0 笔', 'teal'],
+  ].map((c) => `<div class="card"><div class="k">${c[0]}</div><div class="v ${c[2]}">${c[1]}</div></div>`).join('');
+  const cny = (x) => '¥' + ((x.usd - x.fee) * x.rate).toFixed(2);
+  $('pRows').innerHTML = PAYOUTS.map((x, i) => `<tr><td>${esc(x.date)}</td><td>${esc(x.name)}</td><td>${esc(x.bank)}</td><td>$${x.usd.toFixed(2)}</td><td>$${x.fee.toFixed(2)}</td><td>${x.rate}</td><td>${cny(x)}</td><td><span class="tag ok">已到账</span></td><td><button class="btn sm ghost" onclick="viewPayout(${i})">查看</button></td></tr>`).join('');
+  $('pList').innerHTML = PAYOUTS.map((x, i) => `<div class="subs-item"><div class="l1">${esc(x.name)} · $${x.usd.toFixed(2)}</div><div class="l2"><span class="tag ok">已到账</span><span>${esc(x.bank)}</span></div><div class="l3">${esc(x.date)} · 费用 $${x.fee.toFixed(2)} · 汇率 ${x.rate} · 实到 ${cny(x)}<br><button class="btn sm ghost" onclick="viewPayout(${i})">查看明细</button></div></div>`).join('');
+}
+let PAYOUTS = [];
+function exportPayouts() {
+  const head = '打款日期,合作伙伴,收款银行,佣金USD,通道费用USD,汇率,实际到账CNY,状态';
+  const lines = PAYOUTS.map((x) => [x.date, x.name, x.bank, x.usd.toFixed(2), x.fee.toFixed(2), x.rate, ((x.usd - x.fee) * x.rate).toFixed(2), x.status === 'ok' ? '已到账' : '异常'].join(','));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + head + '\n' + lines.join('\n')], { type: 'text/csv;charset=utf-8' }));
+  a.download = 'Jirvs返佣记录.csv'; a.click(); URL.revokeObjectURL(a.href);
+  toastAdmin('返佣记录已导出');
+}
+function toastAdmin(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(() => { t.style.display = 'none'; }, 2400); }
+function invitePartner(name) { openInvite(name || ''); }
+function openInvite(name) {
+  $('inviteTitle').textContent = name ? '发送签署邀请' : '邀请生态合作伙伴';
+  $('invName').value = name || '';
+  $('invType').value = '个人';
+  $('invContact').value = '';
+  $('invResult').innerHTML = '';
+  $('invGenBtn').textContent = name ? '发送邀请' : '生成邀请链接';
+  $('inviteModal').classList.add('open');
+}
+function genInvite() {
+  const nm = $('invName').value.trim();
+  if (!nm) { toastAdmin('请先填写伙伴名称'); return; }
+  const code = 'INV-2026-' + String(Date.now()).slice(-4);
+  const link = 'https://partner.jirvs.com/invite/' + code;
+  $('invResult').innerHTML = `<div class="inv-link">${link}</div><div class="row" style="margin-top:10px"><button class="btn sm ghost" onclick="copyInv('${link}')">复制链接</button></div><p class="desc" style="margin-top:10px">发给「${esc(nm)}」（${esc($('invType').value)}），对方完成签署后将自动出现在合作伙伴列表（演示）。</p>`;
+  toastAdmin('邀请链接已生成');
+}
+async function copyInv(txt) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(txt); ok = true; } catch {}
+  if (!ok) {
+    try {
+      const ta = document.createElement('textarea');
+      ta.value = txt; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, txt.length);
+      ok = document.execCommand('copy'); ta.remove();
+    } catch {}
+  }
+  toastAdmin(ok ? '已复制' : '复制失败，请长按链接复制');
+}
+function viewAgr(id) {
+  const p = PARTNERS.find((x) => x.id === id);
+  $('agrModalTitle').textContent = '合作协议 · ' + p.name;
+  const agrNo = p.recordNo ? esc(p.recordNo) : '<span style="color:var(--red)">签署后自动生成</span>';
+  const agrTitle = p.contractVer === 'V2' ? 'Jirvs 战略合作伙伴合作协议' : 'Jirvs 生态合作伙伴合作协议';
+  const agrVer = p.contractVer === 'V2' ? 'V2.1' : 'V1.1';
+  $('agrText').innerHTML = AGR_TEXT.replace(/Jirvs 生态合作伙伴合作协议/g, agrTitle).replace(/V1\.1/g, agrVer).replace(/JIRVS-ECO-2026-001/g, agrNo);
+  const sigImg = '<img src="data:image/svg+xml;utf8,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20width=%22220%22%20height=%2280%22%3E%3Cpath%20d=%22M12%2055%20C%2040%2015%2C%2055%2070%2C%2078%2038%20S%20120%2020%2C%20138%2052%20S%20185%2062%2C%20208%2034%22%20fill=%22none%22%20stroke=%22%23111%22%20stroke-width=%222.4%22%20stroke-linecap=%22round%22/%3E%3C/svg%3E" alt="手写签名" style="height:64px;border:1px solid var(--line);border-radius:8px;background:#fff">';
+  $('agrRecord').innerHTML = `签署记录编号：<b>${esc(p.recordNo || '—')}</b><br>签署人：<b>${esc(p.name)}</b>（${esc(p.type)}）<br>甲方：Jirvs Limited（系统确认）<br>${p.type === '企业' ? `统一社会信用代码：${esc(p.credit || '—')}<br>法定代表人：${esc(p.legal || '—')}<br>` : `身份证号：${esc(p.idno || '—')}<br>`}联系电话：${esc(p.phone || '—')}<br>电子邮箱：${esc(p.email || '—')}<br>收款银行卡：${esc(p.bank || '—')}<br>约定佣金比例：${p.contractVer === 'V2' ? 'V2 战略合作伙伴 50%' : 'V1 生态合作伙伴 30%'}（签署锁定）<br>签署时间：${esc(p.signTime)}<br>签署 IP：120.85.***.***<br>协议版本：V1.1（编号 ${agrNo}）<br>手写签名：<br>${p.hasSig ? sigImg : '—'}`;
+  $('agrSupp').innerHTML = (p.vip && p.vip.signed) ? `
+  <div style="margin-top:16px;border-top:1px solid var(--line);padding-top:12px">
+    <div style="font-weight:700;font-size:14px;margin-bottom:6px">特批补充协议 <span style="font-weight:400;color:var(--muted);font-size:12px">V1.2</span></div>
+    <div style="font-size:13px;line-height:2">特批佣金比例：月付 ${p.vip.rateM}% · 年付 ${p.vip.rateY}%（首年激励期）<br>第 13 个月起自动回落标准比例（月付 20% · 年付 30%）<br>比例只对该伙伴生效后新引入的商户适用，存量商户按绑定时快照走<br>本补充协议自乙方签署并经系统传回确认后生效<br>签署状态：<span class="tag ok">已签署</span><br>签署时间：${esc(p.vip.signTime)}<br>手写签名：<br>${sigImg}</div>
+  </div>` : '';
+  $('agrModal').classList.add('open');
+}
+const AGR_TEXT = `
+<p style="text-align:center"><b style="font-size:15px">Jirvs 生态合作伙伴合作协议</b><br><span style="color:var(--muted)">协议编号：JIRVS-ECO-2026-001 ｜ 版本：V1.1</span></p>
+<p><b>甲方（委托方）：</b>Jirvs Limited（公司注册编号：81299026）</p>
+<p><b>乙方（生态合作伙伴）：</b>以签署时填写并经系统记录的信息为准。</p>
+<p><b>第一条 合作性质与定位</b><br>双方为平等民事委托合作关系，不构成劳动、雇佣、劳务、代理或合伙关系；乙方无权代表甲方对外作出任何承诺。甲方不为乙方承担社保、公积金及任何员工福利。</p>
+<p><b>第二条 推广与有效客户（1 个月保护期）</b><br>乙方通过专属推荐链接/推荐码邀请客户，归属以甲方系统记录为准，绕过链接的私下交易不计业绩。被推荐客户须完成注册、开通服务并实际付费订阅（到账且未退款、未拒付），方计为有效业绩。客户注册后 30 天为归属保护期：保护期内产生有效业绩即绑定乙方，绑定后在本协议有效期内持续计入；注册满 30 天未产生有效业绩的，绑定自动解除。</p>
+<p><b>第三条 佣金与结算</b><br>乙方推荐的客户向甲方支付订阅费后，甲方按签署记录载明的比例向乙方支付一次性佣金。甲方于每月5日将乙方上月应得佣金汇入乙方登记的银行账户，相关跨境付款通道费用从应付金额中扣除，以银行实际到账为准。甲方每次付款向乙方提供电子结算单。</p>
+<p><b>第四条 协议期限</b><br>本协议自签署之日起生效，有效期两年。期满前一个月，双方可协商续签；未提出异议的，自动延续一年。</p>
+<p><b>第五条 合规与推广红线</b><br>乙方推广须遵守法律法规、监管要求及平台规则，不得虚假、夸大或误导性宣传；不得承诺"包过审""费率最低""收益保障"；不得宣称甲方为持牌支付机构，不得暗示客户资金由甲方经手、托管或担保。不得向赌博、诈骗、非法集资、洗钱、虚拟资产违规交易、侵权假冒等违法违规业务的客户推广引流；不得协助客户伪造资料通过通道审核。违者甲方有权立即封停账号、清零全部未结佣金并追究法律责任，涉嫌违法的依法报告。乙方不得冒充甲方员工；未经书面授权不得使用甲方商标、商号及品牌素材，不得抢注相关商标、域名或品牌词广告。乙方不得非法收集、使用或出售客户个人信息，不得将归因客户私下转介至竞争平台或绕过系统交易（飞单）。乙方签约资料须真实有效，变更及时通知；资料虚假的，甲方有权立即解除并追偿。甲方有权对乙方推广内容及行为进行合规审查，乙方应配合并按要求整改、下架。乙方不得通过注册关联账号为自身实际控制的业务购买订阅以套取佣金，一经查实，甲方有权取消关联收益并解除本协议。</p>
+<p><b>第六条 保密</b><br>乙方对佣金政策、客户信息、技术资料等甲方商业信息负保密义务，协议终止后继续有效。</p>
+<p><b>第七条 期限与解除</b><br>本协议自签署之日起长期有效。有下列情形之一的，甲方有权直接解除本协议：（一）乙方连续 365 个自然日无新增有效订阅商户；（二）乙方违反第五条合规与推广红线。违规解除的，未结算佣金一并清零；解除后专属推荐链接与推荐码立即失效。</p>
+<p><b>第八条 签署效力与争议解决</b><br>本协议由乙方在生态合作伙伴中心阅读全文、填写真实资料、勾选同意并点击"同意并签署"后成立并生效；系统记录的签署人信息、签署时间、IP 地址及协议版本与纸质签署具有同等法律效力。争议协商解决；协商不成的，提交香港特别行政区法院专属管辖。</p>
+`;
+function settlePartner(id) {
+  const p = PARTNERS.find((x) => x.id === id);
+
+  if (p.status === 'terminated') { toastAdmin('该伙伴已账户解约，不可付款'); return; }
+  p.paid += p.payable; p.payable = 0;
+  renderCommission();
+}
+
+/* ===== 合作留言 ===== */
+let LEADS = [];
+function renderLeads() {
+  $('leadRows').innerHTML = LEADS.map((l, i) => `<tr>
+    <td>${l.t}</td><td>${l.name}</td><td>${l.phone}</td><td>${l.email ? `<a href="mailto:${l.email}">${l.email}</a>` : '<span style="color:#98a2b3">未填</span>'}</td>
+    <td style="max-width:340px">${l.need}</td>
+    <td>${l.done ? '<span class="tag ok">已联系</span>' : '<span class="tag warn">未处理</span>'}</td>
+    <td>${l.done ? '' : `<button class="btn sm" onclick="markLead(${i})">标记已联系</button>`}</td></tr>`).join('');
+}
+function markLead(i) { LEADS[i].done = true; renderLeads(); toast('已标记为已联系'); }
+
+/* ===== 操作日志 ===== */
+function renderLogs() {
+  $('logRows').innerHTML = LOGS.map((l) => `<tr><td>${l.t}</td><td>${esc(l.admin)}</td><td>${esc(l.action)}</td><td style="font-family:monospace">${esc(l.target)}</td><td>${esc(l.reason)}</td></tr>`).join('');
+}
+
+/* ===== 管理员 ===== */
+function renderAdmins() {
+  $('adminRows').innerHTML = ADMINS.map((a) => `<tr>
+    <td>${esc(a.email)}</td>
+    <td>${a.role === 'superadmin' ? '<span class="tag info">超级管理员</span>' : '<span class="tag gray">只读管理员</span>'}</td>
+    <td>${a.created}</td>
+    <td>${a.email === 'admin@jirvs.com' ? '<span style="color:var(--muted)">—</span>' : `<button class="btn sm danger" onclick="delAdmin('${a.id}')">删除</button>`}</td></tr>`).join('');
+}
+async function addAdmin() {
+  const email = $('newAdminEmail').value.trim();
+  if (!email || email.indexOf('@') < 0) { toastAdmin('请输入对方邮箱'); return; }
+  try {
+    const r = await fetch('/api/admin/admins', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '添加失败');
+    $('tokenResult').innerHTML = `<div class="note" style="color:var(--green);font-weight:700">已添加只读管理员 ${esc(email)}，默认密码 123456，请通知对方登录后尽快修改密码。</div>`;
+    $('newAdminEmail').value = '';
+    await loadAllData();
+    renderAdmins();
+  } catch (e) { toastAdmin(e.message); }
+}
+let confirmCb = null;
+function showConfirm(title, msg, btnText, cb) {
+  $('confirmTitle').textContent = title;
+  $('confirmMsg').textContent = msg;
+  $('confirmBtn').textContent = btnText;
+  confirmCb = cb;
+  $('confirmBtn').onclick = () => { closeModal('confirmModal'); if (confirmCb) confirmCb(); };
+  $('confirmModal').classList.add('open');
+}
+function delAdmin(id) {
+  const a = ADMINS.find((x) => x.id === id);
+  showConfirm('删除管理员', '确定删除管理员 ' + (a ? a.email : id) + ' 吗？对方将立即无法登录。', '确认删除', async () => {
+    try {
+      const r = await fetch('/api/admin/admins/' + encodeURIComponent(id), {
+        method: 'DELETE', credentials: 'include',
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || '删除失败');
+      await loadAllData();
+      renderAdmins();
+    } catch (e) { toastAdmin(e.message); }
+  });
+}
+function openPw() { $('pwOld').value = ''; $('pwNew').value = ''; $('pwErr').textContent = ''; $('pwModal').classList.add('open'); }
+function doChangePw() {
+  if (!$('pwOld').value || $('pwNew').value.length < 6) { $('pwErr').textContent = '新密码至少 6 位'; return; }
+  closeModal('pwModal');
+  toastAdmin('密码修改成功，请用新密码重新登录');
+  setTimeout(doLogout, 1200);
+}
+
+/* ===== 初始化 ===== */
+paintBadge();
+bindSearch('f', FM, loadFiatOrders);
+$('loginPw').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>
