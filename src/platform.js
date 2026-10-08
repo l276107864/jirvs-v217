@@ -423,7 +423,7 @@ function createPlatform() {
     if (!user_id) throw new Error('需要登录');
     const exists = db.prepare('SELECT merchant_id FROM merchants WHERE user_id = ? LIMIT 1').get(user_id);
     if (exists) return { merchant_id: exists.merchant_id, api_key: null }; // 断点续传：Key 早已发过
-    const created = createMerchant(user_id, { channels: [], company: '', personal_name: '', country: 'HK', email });
+    const created = createMerchant(user_id, { channels: [], company: '', personal_name: '', country: '', email });
     return { merchant_id: created.merchant_id, api_key: created.api_key };
   }
 
@@ -758,11 +758,19 @@ function createPlatform() {
     if (p.status === 'none') p.status = 'draft';
     if (channel === 'fiat') {
       if (name !== undefined) p.company_name = String(name).slice(0, 120);
-      if (country !== undefined) p.country = String(country).toUpperCase().slice(0, 8);
+      if (country !== undefined) {
+        p.country = String(country).toUpperCase().slice(0, 8);
+        // v21.7：把 country 同步写回 merchants.country 字段，否则 portal.html 头部展示的仍是建表默认值 'HK'
+        db.prepare('UPDATE merchants SET country = ? WHERE merchant_id = ?').run(p.country, merchant_id);
+      }
       db.prepare('UPDATE merchants SET company = ? WHERE merchant_id = ?').run(p.company_name, merchant_id);
     } else {
       if (name !== undefined) p.personal_name = String(name).slice(0, 120);
-      if (country !== undefined) p.country = String(country).toUpperCase().slice(0, 8);
+      if (country !== undefined) {
+        p.country = String(country).toUpperCase().slice(0, 8);
+        // 同上：稳定币通道的 country 也要同步到 merchants.country
+        db.prepare('UPDATE merchants SET country = ? WHERE merchant_id = ?').run(p.country, merchant_id);
+      }
       db.prepare('UPDATE merchants SET personal_name = ? WHERE merchant_id = ?').run(p.personal_name, merchant_id);
     }
     return writeProfile(merchant_id, channel, p);

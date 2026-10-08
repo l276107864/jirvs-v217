@@ -28,7 +28,7 @@ function openDb() {
       user_id TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
       company TEXT DEFAULT '',
-      country TEXT DEFAULT 'HK',
+      country TEXT DEFAULT '',
       contact TEXT DEFAULT '',
       email TEXT DEFAULT '',
       channels TEXT DEFAULT '[]',
@@ -221,6 +221,24 @@ function openDb() {
   // v21.7：商户推荐归因（partner_id 为空表示自然注册）
   try { db.exec(`ALTER TABLE merchants ADD COLUMN partner_id TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
   try { db.exec(`ALTER TABLE merchants ADD COLUMN referred_at TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
+  // v21.7：脏数据修复 —— 把 merchants.country 从建表默认值 'HK'（老 schema 副作用）同步为 profile 里的真实 country。
+  // saveChannelDraft 已修复，未来新注册不会再有这个问题；这里把历史脏数据一次性修干净。
+  try {
+    const rows = db.prepare("SELECT merchant_id, fiat_profile, stable_profile FROM merchants WHERE (country = '' OR country = 'HK') AND (fiat_profile IS NOT NULL OR stable_profile IS NOT NULL)").all();
+    for (const r of rows) {
+      let real = '';
+      // 法币 profile 优先
+      try { const fp = JSON.parse(r.fiat_profile || 'null'); if (fp && fp.country) real = String(fp.country).toUpperCase().slice(0, 8); } catch {}
+      if (!real) { try { const sp = JSON.parse(r.stable_profile || 'null'); if (sp && sp.country) real = String(sp.country).toUpperCase().slice(0, 8); } catch {} }
+      if (real && real !== 'HK' && real !== '') {
+        db.prepare('UPDATE merchants SET country = ? WHERE merchant_id = ?').run(real, r.merchant_id);
+        console.log('[db.js] v21.7 country fix:', r.merchant_id, '->', real);
+      } else if (!real) {
+        // profile 里也没 country，留空让用户重新完善信息
+        db.prepare('UPDATE merchants SET country = ? WHERE merchant_id = ?').run('', r.merchant_id);
+      }
+    }
+  } catch (e) { console.error('[db.js] v21.7 country fix failed:', e.message); }
   return db;
 }
 
