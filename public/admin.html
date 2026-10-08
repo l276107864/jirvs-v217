@@ -1298,7 +1298,7 @@ function renderWH() {
     <td>${w.res === 'fail' ? `<button class="btn sm ghost" onclick="replayWh('${w.t}')">重放</button>` : '<span style="color:var(--muted)">—</span>'}</td></tr>`).join('')
     || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:26px">暂无记录</td></tr>';
 }
-function replayWh(t) { alert('演示环境：已模拟重放该 Webhook（' + t + '），通道返回成功。'); }
+function replayWh(t) { alert('生产环境不提供本地伪造 Webhook；请使用支付机构的签名回调进行验收。'); }
 
 /* ===== 分润结算 ===== */
 let profitPeriod = 'day';

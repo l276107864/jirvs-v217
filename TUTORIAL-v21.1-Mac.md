@@ -1,3 +1,6 @@
+
+> **历史文档（不适用于当前法币版）**：当前版本只支持 Antom/Airwallex 法币通道；稳定币、NOWPayments、Payoneer 沙盒流程均已下线。请以 `README.md` 和 `COMMERCIAL-READINESS.md` 为准。
+
 # Jirvs 商户门户 v21.1 · Mac 新手教程（零基础一步一步来）
 
 > v21 新增：4 步入驻向导（一账号一商户，商户=登录邮箱）、入驻后追加通道、

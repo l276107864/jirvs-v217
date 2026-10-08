@@ -1,3 +1,6 @@
+
+> **历史文档（不适用于当前法币版）**：当前版本只支持 Antom/Airwallex 法币通道；稳定币、NOWPayments、Payoneer 沙盒流程均已下线。请以 `README.md` 和 `COMMERCIAL-READINESS.md` 为准。
+
 # v20 API 变更契约（给前端 B / 测试 C）
 
 版本：0.20.0。最大变更：**商户门户加账号体系（邮箱+密码），数据进 SQLite 持久化；入驻第一步选通道；收银台按真实产品重做**。

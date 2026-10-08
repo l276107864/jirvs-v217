@@ -24,6 +24,11 @@ const { geoFence } = require('./geoFence'); // 合规：地理围栏，阻止受
 const eco = require('./ecosystem'); // v21.7 生态合作
 
 const app = express();
+// 稳定币业务已下线：在所有历史路由之前统一返回 410，避免旧 Webhook/Deposit 入口被访问。
+app.use((req, res, next) => {
+  if (/stablecoin|nowpayments|triple.?a/i.test(req.path)) return res.status(410).json({ error: '平台不支持稳定币，仅支持法币收款' });
+  next();
+});
 const PORT = process.env.PORT || 3000;
 // v21：发邮件（找回密码）。RESEND_API_KEY 环境变量未设置时只打印日志不真发（本地开发模式）。
 // 发件人默认用 Resend 测试地址；验证 jirvs.com 域名后可设 MAIL_FROM="Jirvs <noreply@jirvs.com>"。
@@ -107,22 +112,21 @@ function ipnKey(payment_id, payment_status) {
 // v18 聚合路由：card=银行卡→Antom；stablecoin=稳定币→NOWPayments。
 // 用户只选支付方式，不选机构。
 // v21.2：法币通道走 Antom（真实联调测通前保持 pending，card rail 不可用）。
-const ROUTE_PRIORITY = { card: ['antom'], stablecoin: ['nowpayments'] };
+const ROUTE_PRIORITY = { card: ['antom', 'airwallex'] };
 
 // v21.2：通道是否可收款 = 对应通道有没有绿勾（channels_state.status === 'active'）。
 // 这是服务端门禁的唯一依据：收银台只显示绿勾通道，建单 API 同规则校验。
 // 法币通道（card）→ Antom 真实联调测通才绿；稳定币通道（stablecoin）→ NOWPayments Key 校验通过才绿。
 function merchantProviderReady(merchant_id, provider) {
   if (provider === 'payoneer' || provider === 'antom') return platform.channelIsActive(merchant_id, 'fiat');
-  if (provider === 'nowpayments') return platform.channelIsActive(merchant_id, 'stablecoin');
   return false;
 }
 
 // 按商户已开通且完成验证的通道，算出收银台该显示哪些支付方式
 function availableRails(merchant_id) {
   const rails = [];
-  if (merchantProviderReady(merchant_id, 'antom')) rails.push('card');
-  if (merchantProviderReady(merchant_id, 'nowpayments')) rails.push('stablecoin');
+  if (ROUTE_PRIORITY.card.some((provider) => merchantProviderReady(merchant_id, provider))) rails.push('card');
+
   return rails;
 }
 
@@ -361,8 +365,13 @@ function requireSuperAdmin(req, res, next) {
 // 账号注册：一个邮箱即可（v20：Jirvs 注册就是一个邮箱+密码）
 app.post('/api/v1/auth/register', async (req, res) => {
   try {
-    const { email, password } = req.body || {};
+    const { email, password, ref_code } = req.body || {};
     const user = platform.createUser({ email, password });
+    const ref = String(ref_code || '').trim().toUpperCase();
+    if (ref) {
+      const partner = platform.db.prepare("SELECT ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(ref);
+      if (partner) platform.db.prepare('UPDATE users SET referral_code = ?, referral_captured_at = ? WHERE id = ?').run(ref, new Date().toISOString(), user.id);
+    }
     const sess = platform.createSession(user.id);
     setSessionCookie(req, res, sess.token, sess.expires_at);
     res.json({ user, expires_at: sess.expires_at });
@@ -967,17 +976,18 @@ setInterval(async () => {
 app.post('/api/v1/merchants', requireAuth, async (req, res) => {
   try {
     const body = req.body || {};
-    const channel = body.channel === 'stablecoin' ? 'stablecoin' : 'fiat';
+    if (body.channel === 'stablecoin') return res.status(410).json({ error: '平台不支持稳定币，仅支持法币收款' });
+    const channel = 'fiat';
     const name = String(body.name || body.company_name || body.personal_name || '').trim();
     const country = String(body.country || '').trim().toUpperCase();
     if (!name) return res.status(400).json({ error: channel === 'fiat' ? '请填写公司名称' : '请填写姓名' });
     const allowed = channel === 'fiat' ? ['CN', 'HK', 'OTHER'] : ['HK', 'SG', 'OTHER'];
     if (!allowed.includes(country)) return res.status(400).json({ error: '请选择该通道支持的主体地区' });
-    let mid, api_key = null;
+    let mid, api_key = null, api_pub_key = null;
     try {
       const created = platform.createMerchantDraft(req.user.id, req.user.email);
       mid = created.merchant_id;
-      api_key = created.api_key; // 首次注册成功时返回，仅此一次；断点续传时为 null
+      api_key = created.api_key; api_pub_key = created.api_pub_key; // 首次注册成功时返回，仅此一次；断点续传时为空
     } catch (e) {
       // 该账号已有商户：断点续传，直接复用
       if (!/已完成入驻/.test(e.message)) throw e;
@@ -1000,11 +1010,11 @@ app.post('/api/v1/merchants', requireAuth, async (req, res) => {
       channels_state: platform.getChannelState(mid),
       note: channel === 'fiat'
         ? '法币主体资料已保存。请去 Antom 注册并取得 Client ID，回来粘贴验证；Antom 真实联调完成前通道保持待验证状态。'
-        : '稳定币主体资料已保存。请去 NOWPayments 注册并取得 API Key 与 IPN Secret，回来粘贴验证。',
+        : '法币主体资料已保存。请在 Antom 或 Airwallex 完成开户并回来绑定验证。',
     };
     if (api_key) {
       out.api_key = api_key;
-      out.note = '注册成功！你的 Jirvs API Key 已生成（全账号只有这一把，仅显示一次，请立即复制保存）。' + out.note;
+      out.note = '注册成功！你的 Jirvs live Key 与 public Key 均仅显示一次，请立即复制保存。' + out.note;
     }
     res.json(out);
   } catch (err) {
@@ -1212,7 +1222,15 @@ app.get('/api/v1/subscriptions/status', requireAuth, (req, res) => {
   }
 });
 
-// v21.7：商户订阅下单（$199 终身；沙盒阶段直接记为已付，正式版接 Antom 收银台）
+// 订阅报价与真实支付状态机：无邀请码 $299，有效邀请码 $199。
+app.get('/api/v1/subscriptions/quote', requireAuth, (req, res) => {
+  const ms = platform.listMerchants(req.user.id);
+  if (!ms.length) return res.status(400).json({ error: '请先注册商户主体' });
+  const u = platform.db.prepare('SELECT referral_code, referral_captured_at FROM users WHERE id = ?').get(req.user.id) || {};
+  const valid = u.referral_code && u.referral_captured_at && Date.now() - new Date(u.referral_captured_at).getTime() <= 30 * 86400000;
+  res.json({ plan: 'lifetime', currency: 'USD', amount: valid ? 199 : 299, referral: valid ? u.referral_code : null });
+});
+
 app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
   try {
     const db = platform.db;
@@ -1226,11 +1244,11 @@ app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
     const now = eco.nowBJ();
     const id = eco.uid('sub');
     // v21.7：终身订阅，无到期
-    db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, created_at)
-      VALUES (?, ?, 'lifetime', 199, 'USD', 'active', ?, '', ?)`)
-      .run(id, mid, now, now);
-    const comm = eco.onSubscriptionPaid(db, { id, merchant_id: mid, amount: 199, paid_at: now });
-    res.json({ ok: true, id, plan: 'lifetime', amount: 199, commission: comm });
+    const u = db.prepare('SELECT referral_code, referral_captured_at FROM users WHERE id = ?').get(req.user.id) || {};
+    const valid = u.referral_code && u.referral_captured_at && Date.now() - new Date(u.referral_captured_at).getTime() <= 30 * 86400000;
+    const amount = valid ? 199 : 299;
+    db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?)` ).run(id, mid, amount, now);
+    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, status: 'pending', message: '请完成 Antom/Airwallex 订阅付款；支付回调确认后才会开通。' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -71,7 +71,7 @@
       note.textContent = n + ' 秒后自动返回商家…';
     }, 1000);
   }
-  const railTxt = methodParam || (rail === 'stablecoin' ? '稳定币' : '银行卡');
+  const railTxt = methodParam || ('银行卡');
   try {
     let s = null;
     if (sid) {
@@ -86,9 +86,7 @@
     ].filter(([, v]) => v);
     document.getElementById('rows').innerHTML = rows.map(([k, v]) =>
       `<div class="row"><span class="k">${k}</span><span class="v">${v}</span></div>`).join('');
-    document.getElementById('note').textContent = rail === 'stablecoin'
-      ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs'
-      : '安全支付由 Antom 提供 · 技术支持 Jirvs';
+    document.getElementById('note').textContent = '安全支付由 Antom 或 Airwallex 提供 · 技术支持 Jirvs';
   } catch {
     document.getElementById('railNote').textContent = '已完成（详情加载失败）';
   }

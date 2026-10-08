@@ -381,11 +381,11 @@ function createPlatform() {
   }
 
   // ---------- 商户 ----------
-  const VALID_CHANNELS = new Set(['fiat', 'stablecoin']);
+  const VALID_CHANNELS = new Set(['fiat']);
   function normalizeChannels(channels) {
     const arr = Array.isArray(channels) ? channels : [channels];
     const out = [...new Set(arr.map((c) => String(c || '').toLowerCase()).filter((c) => VALID_CHANNELS.has(c)))];
-    if (!out.length) throw new Error('请至少选择一个收款通道：fiat（法币）或 stablecoin（稳定币）');
+    if (!out.length) throw new Error('当前平台仅支持法币收款，请选择 fiat');
     return out;
   }
 
@@ -402,18 +402,20 @@ function createPlatform() {
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('email 格式不正确');
     const merchant_id = String(email).trim().toLowerCase(); // v21：商户标识就是邮箱，不再生成 mch_xxx
     const api_key = 'jk_live_' + crypto.randomBytes(16).toString('hex');
+    const api_pub_key = 'jk_pub_' + crypto.randomBytes(16).toString('hex');
     const keyHash = sha256(api_key);
+    const pubKeyHash = sha256(api_pub_key);
     db.prepare(`INSERT INTO merchants
-      (merchant_id, user_id, api_key_hash, company, personal_name, country, email, channels, status, key_issued, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?)`)
-      .run(merchant_id, user_id, keyHash,
+      (merchant_id, user_id, api_key_hash, api_pub_key_hash, company, personal_name, country, email, channels, status, key_issued, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?)`)
+      .run(merchant_id, user_id, keyHash, pubKeyHash,
         String(company || '').trim(), String(personal_name || '').trim(),
         String(country || 'HK').toUpperCase(), String(email), JSON.stringify(ch), now());
     return {
       merchant_id,
       company_name: String(company || '').trim(), personal_name: String(personal_name || '').trim(),
       country: String(country || 'HK').toUpperCase(), email, channels: ch, status: 'active',
-      api_key, // 仅注册成功时返回一次，请妥善保存
+      api_key, api_pub_key, // 两把 Key 均仅返回一次
     };
   }
 
@@ -424,7 +426,7 @@ function createPlatform() {
     const exists = db.prepare('SELECT merchant_id FROM merchants WHERE user_id = ? LIMIT 1').get(user_id);
     if (exists) return { merchant_id: exists.merchant_id, api_key: null }; // 断点续传：Key 早已发过
     const created = createMerchant(user_id, { channels: [], company: '', personal_name: '', country: '', email });
-    return { merchant_id: created.merchant_id, api_key: created.api_key };
+    return { merchant_id: created.merchant_id, api_key: created.api_key, api_pub_key: created.api_pub_key };
   }
 
   // v21：入驻绑定失败时回滚（删掉刚建的商户，不留脏数据）
@@ -452,8 +454,9 @@ function createPlatform() {
     if (!r) throw new Error('商户不存在: ' + merchant_id);
     if (r.user_id !== user_id) throw new Error('无权操作该商户');
     const api_key = 'jk_live_' + crypto.randomBytes(16).toString('hex');
-    db.prepare('UPDATE merchants SET api_key_hash = ?, key_issued = 1 WHERE merchant_id = ?').run(sha256(api_key), merchant_id);
-    return { merchant_id, api_key }; // 仅本次响应返回，请立即保存；刷新页面后无法再查看
+    const api_pub_key = 'jk_pub_' + crypto.randomBytes(16).toString('hex');
+    db.prepare('UPDATE merchants SET api_key_hash = ?, api_pub_key_hash = ?, key_issued = 1 WHERE merchant_id = ?').run(sha256(api_key), sha256(api_pub_key), merchant_id);
+    return { merchant_id, api_key, api_pub_key }; // 仅本次响应返回，请立即保存；刷新页面后无法再查看
   }
 
   function nextStepsFor(channels) {
@@ -509,8 +512,9 @@ function createPlatform() {
     try {
       const r = getMerchantInternal(merchant_id);
       if (r.status === 'frozen') return false; // v21.6：冻结商户的 Key 全部失效
-      if (!r.api_key_hash) return false;
-      return r.api_key_hash === sha256(api_key || '');
+      if (!r.api_key_hash && !r.api_pub_key_hash) return false;
+      const h = sha256(api_key || '');
+      return r.api_key_hash === h || r.api_pub_key_hash === h;
     } catch { return false; }
   }
 

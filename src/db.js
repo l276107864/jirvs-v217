@@ -11,6 +11,12 @@ function openDb() {
   const file = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'jirvs.db');
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
+  for (const ddl of [
+    `ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN referral_captured_at TEXT DEFAULT ''`,
+    `ALTER TABLE merchants ADD COLUMN api_pub_key_hash TEXT DEFAULT ''`,
+    `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
+  ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
@@ -27,6 +33,7 @@ function openDb() {
       merchant_id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
       api_key_hash TEXT NOT NULL,
+      api_pub_key_hash TEXT DEFAULT '',
       company TEXT DEFAULT '',
       country TEXT DEFAULT '',
       contact TEXT DEFAULT '',
@@ -35,6 +42,7 @@ function openDb() {
       status TEXT DEFAULT 'active',
       payoneer TEXT DEFAULT NULL,
       antom TEXT DEFAULT NULL,
+      airwallex TEXT DEFAULT NULL,
       nowpayments TEXT DEFAULT NULL,
       created_at TEXT NOT NULL
     );
@@ -70,6 +78,13 @@ function openDb() {
       created_at TEXT NOT NULL
     );
   `);
+  // 法币版字段迁移必须在基础表创建后执行。
+  for (const ddl of [
+    `ALTER TABLE users ADD COLUMN referral_code TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN referral_captured_at TEXT DEFAULT ''`,
+    `ALTER TABLE merchants ADD COLUMN api_pub_key_hash TEXT DEFAULT ''`,
+    `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
+  ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
   // v21: 稳定币通道个人姓名（法币通道用 company 存公司名）；老库升级加列
   try { db.exec(`ALTER TABLE merchants ADD COLUMN personal_name TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
   // v21: 找回密码 token 表（只存 token 的 SHA-256 哈希）

@@ -5,13 +5,13 @@
     "https-proxy-agent": "^9.1.0",
     "qrcode-generator": "^2.0.4"
   },
-  "description": "Jirvs 聚合收款基础设施：统一 API + Antom（银行卡）/ NOWPayments（稳定币）双通道 + Webhook 事件推送 + 托管收银台 + 商户门户",
+  "description": "Jirvs 聚合收款基础设施：统一 API + Antom/Airwallex 法币通道 + Webhook 事件推送 + 托管收银台",
   "license": "MIT",
   "main": "src/server.js",
   "name": "jirvs-payments",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node test/run-v22.js"
+    "test": "node test/run-fiat-only.js"
   },
   "version": "0.21.7"
 }
