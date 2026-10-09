@@ -790,7 +790,7 @@ function renderHeader() {
   // v21.7：把国家代码转中文展示（CN→中国大陆 / HK→中国香港 / OTHER→其他地区）
   $('subBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : '升级订阅';
   $('fiatVal').innerHTML = acct.fiat
-    ? `<span class="subjname">${esc(acct.fiat.name)}</span><span class="country-tag">（${esc(countryName(acct.fiat.country))}）</span>`
+    ? `<span class="subjname">${esc(acct.fiat.name)}</span><span class="country-tag">（${esc((acct.fiat.country || '').toUpperCase() || '—')}）</span>`
     : `<button class="danger-outline btn-sm" style="flex:none" onclick="askEntReg()">完善信息</button>`;
 }
 function switchMod(m) {
@@ -905,11 +905,6 @@ function renderBrief() {
       <div class="bn">${sumByCurStr(inR, '已支付')}</div>
       <div class="bd">收款 ${paid.length} 笔 · 退款 ${refund.length} 笔 ${sumByCurStr(inR, '已退款')} · 失败 ${failed.length} 笔</div>
     </div>` + kpi;
-}
-/* ===== v21.7：国家代码 → 中文名 ===== */
-function countryName(c) {
-  const m = { CN: '中国大陆', HK: '中国香港', SG: '新加坡', OTHER: '其他地区' };
-  return m[String(c || '').toUpperCase()] || (c || '—');
 }
 /* ===== 收款统计 ===== */
 function renderStats() {
