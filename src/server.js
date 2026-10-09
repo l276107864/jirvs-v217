@@ -362,11 +362,64 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// ---------- v21.7：注册邮箱验证码 ----------
+const regCodeStore = new Map(); // email -> { code, exp, lastSend }
+const REG_CODE_TTL = 10 * 60 * 1000; // 验证码 10 分钟有效
+const REG_CODE_GAP = 60 * 1000;      // 同一邮箱 60 秒内只能发一次
+
+// 获取验证码：生成 6 位数字并发送到邮箱（未配置 RESEND_API_KEY 时打印到控制台，dev 模式）
+app.post('/api/v1/auth/send-code', async (req, res) => {
+  try {
+    const email = String((req.body || {}).email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: '请填写正确的邮箱' });
+    const prev = regCodeStore.get(email);
+    if (prev && Date.now() - prev.lastSend < REG_CODE_GAP) return res.status(429).json({ error: '发送太频繁，请 1 分钟后再试' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    regCodeStore.set(email, { code, exp: Date.now() + REG_CODE_TTL, lastSend: Date.now() });
+    const html = `<p>你的 Jirvs 商户门户注册验证码是：<b style="font-size:20px;letter-spacing:4px">${code}</b>（10 分钟内有效）。</p><p>如果这不是你本人的操作，请忽略本邮件。</p>`;
+    try { await sendMail({ to: email, subject: 'Jirvs 商户门户：注册验证码', html }); }
+    catch (e) { console.error('[send-code] 发信失败:', e.message); return res.status(502).json({ error: '验证码邮件发送失败，请稍后重试' }); }
+    // 本地开发（未配置 RESEND_API_KEY）把验证码带回前端，方便调试；生产不会返回
+    const dev = !process.env.RESEND_API_KEY;
+    res.json({ ok: true, ...(dev ? { dev_code: code } : {}) });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 校验验证码（注册「下一步」用；不消费，真正注册时后端再校验一次防绕过）
+app.post('/api/v1/auth/verify-code', (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  const code = String((req.body || {}).code || '').trim();
+  const rec = regCodeStore.get(email);
+  if (!rec || Date.now() > rec.exp) return res.status(400).json({ error: '验证码已过期，请重新获取' });
+  if (rec.code !== code) return res.status(400).json({ error: '验证码错误' });
+  res.json({ ok: true });
+});
+
 // 账号注册：一个邮箱即可（v20：Jirvs 注册就是一个邮箱+密码）
+// v21.7：注册改为两步——先邮箱验证码校验，再填主体信息；主体信息在注册时一并落库
 app.post('/api/v1/auth/register', async (req, res) => {
   try {
-    const { email, password, ref_code } = req.body || {};
-    const user = platform.createUser({ email, password });
+    const { email, password, code, company_name, country, ref_code } = req.body || {};
+    const em = String(email || '').trim().toLowerCase();
+    // 1) 验证码校验（通过后消费，一次性）
+    const rec = regCodeStore.get(em);
+    if (!rec || Date.now() > rec.exp) return res.status(400).json({ error: '验证码已过期，请重新获取' });
+    if (rec.code !== String(code || '').trim()) return res.status(400).json({ error: '验证码错误' });
+    // 2) 主体信息校验
+    const name = String(company_name || '').trim();
+    const ctry = String(country || '').trim().toUpperCase();
+    if (!name) return res.status(400).json({ error: '请填写主体名称' });
+    if (!['CN', 'HK', 'OTHER'].includes(ctry)) return res.status(400).json({ error: '请选择主体地区' });
+    // 3) 建账号
+    const user = platform.createUser({ email: em, password });
+    regCodeStore.delete(em);
+    // 4) 主体信息落库：创建商户草稿并写入公司名/地区（与门户里「完善信息」同一套存储）
+    try {
+      const created = platform.createMerchantDraft(user.id, user.email);
+      platform.saveChannelDraft(created.merchant_id, 'fiat', { name, country: ctry });
+    } catch (e) { console.error('[register] 主体信息保存失败:', e.message); }
     const ref = String(ref_code || '').trim().toUpperCase();
     if (ref) {
       const partner = platform.db.prepare("SELECT ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(ref);

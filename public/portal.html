@@ -148,6 +148,11 @@
   #authWrap { max-width:420px; margin:60px auto; background:#fff; border:1px solid var(--border); border-radius:24px; padding:32px; box-shadow:0 30px 80px rgba(15,23,42,.11),0 5px 18px rgba(15,23,42,.04); }
   #authWrap h2 { margin:0 0 4px; font-size:22px; font-weight:800; letter-spacing:-.03em; }
   #authWrap h2 .j { color:var(--accent); }
+  /* v21.7：注册第一步——邮箱 + 获取验证码按钮同行 */
+  #authWrap .row2 { display:flex; gap:8px; }
+  #authWrap .row2 input { flex:1; width:auto; min-width:0; }
+  #authWrap .row2 button { flex:none; white-space:nowrap; }
+  #authWrap .row2 button:disabled { opacity:.55; cursor:not-allowed; }
   .linklike { background:none; border:0; color:var(--accent); font-size:13px; padding:0; cursor:pointer; }
   #toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; display:none; z-index:200; max-width:88vw; text-align:center; }
   #appWrap { display:none; }
@@ -276,11 +281,27 @@
 
   </div>
   <div id="authReg" style="display:none">
-    <label>邮箱（账号就是邮箱）</label><input id="r_email" type="email" placeholder="you@company.com" autocomplete="off" />
-    <label>密码</label><input id="r_pass" type="password" placeholder="至少 6 位" autocomplete="new-password" />
-    <label>确认密码</label><input id="r_pass2" type="password" placeholder="再输一次" autocomplete="new-password" />
-    <div class="err" id="r_err"></div>
-    <div style="margin-top:14px"><button class="primary" style="width:100%" onclick="regSubmit()">注册</button></div>
+    <!-- 第一步：账号信息 + 邮箱验证码 -->
+    <div id="regStep1">
+      <label>邮箱（账号就是邮箱）</label>
+      <div class="row2">
+        <input id="r_email" type="email" placeholder="you@company.com" autocomplete="off" />
+        <button id="r_send" class="ghost" onclick="sendRegCode()">获取验证码</button>
+      </div>
+      <label>验证码</label><input id="r_code" inputmode="numeric" maxlength="6" placeholder="6 位数字验证码" autocomplete="one-time-code" />
+      <label>密码</label><input id="r_pass" type="password" placeholder="至少 6 位" autocomplete="new-password" />
+      <label>确认密码</label><input id="r_pass2" type="password" placeholder="再输一次" autocomplete="new-password" />
+      <div class="err" id="r_err"></div>
+      <div style="margin-top:14px"><button class="primary" style="width:100%" onclick="regNext()">下一步</button></div>
+    </div>
+    <!-- 第二步：完善主体信息 -->
+    <div id="regStep2" style="display:none">
+      <label>主体名称</label><input id="r_company" placeholder="与营业执照一致" autocomplete="off" />
+      <label>主体地区</label>
+      <select id="r_country"><option value="" selected>请选择地区</option><option value="CN">中国大陆</option><option value="HK">中国香港</option><option value="OTHER">其他地区</option></select>
+      <div class="err" id="r_err2"></div>
+      <div class="mrow"><button class="primary" onclick="regFinish()">完成注册</button><button class="ghost" onclick="regBack()">上一步</button></div>
+    </div>
     <div class="hint">注册后进入门户，完成企业注册即可连接收款通道；生成 Key 时再订阅。</div>
     <div style="margin-top:12px; text-align:center; font-size:13px; color:var(--muted)">已有账号？ <button class="linklike" onclick="showLogin()">去登录</button></div>
   </div>
@@ -661,7 +682,10 @@ function buildNotifs(orders) {
 
 /* ===== 登录/注册 ===== */
 function showReg() {
-  $('r_email').value = ''; $('r_pass').value = ''; $('r_pass2').value = '';
+  $('r_email').value = ''; $('r_code').value = ''; $('r_pass').value = ''; $('r_pass2').value = '';
+  $('r_company').value = ''; $('r_country').value = '';
+  $('r_err').textContent = ''; $('r_err2').textContent = '';
+  regStep(1);
   $('authLogin').style.display = 'none'; $('authReg').style.display = 'block';
 }
 function showLogin() { $('authReg').style.display = 'none'; $('authLogin').style.display = 'block'; }
@@ -691,19 +715,58 @@ async function checkSession() {
     }
   } catch(e) { /* 未登录，停留在登录页 */ }
 }
-async function regSubmit() {
-  const e = $('r_email').value.trim(), p = $('r_pass').value, p2 = $('r_pass2').value;
+/* ===== v21.7：两步式注册（第一步验证码 → 第二步主体信息） ===== */
+let regCd = 0, regCdTimer = null;
+function regStep(n) {
+  $('regStep1').style.display = n === 1 ? 'block' : 'none';
+  $('regStep2').style.display = n === 2 ? 'block' : 'none';
+}
+function regBack() { regStep(1); }
+// 发送 6 位数字验证码到注册邮箱（60 秒倒计时防刷）
+async function sendRegCode() {
+  const e = $('r_email').value.trim(), btn = $('r_send');
+  if (!e || e.indexOf('@') < 0) { $('r_err').textContent = '请先填写正确的邮箱'; return; }
+  $('r_err').textContent = '';
+  try {
+    const j = await apiPost('/api/v1/auth/send-code', { email: e });
+    toast(j.dev_code ? ('本地开发模式，验证码：' + j.dev_code) : '验证码已发送，请查收邮箱');
+    regCd = 60;
+    btn.disabled = true;
+    btn.textContent = regCd + 's 后重发';
+    regCdTimer = setInterval(() => {
+      regCd--;
+      if (regCd > 0) { btn.textContent = regCd + 's 后重发'; return; }
+      clearInterval(regCdTimer); btn.disabled = false; btn.textContent = '获取验证码';
+    }, 1000);
+  } catch (err) { $('r_err').textContent = err.message; }
+}
+// 第一步「下一步」：本地校验 + 后端校验验证码一致后才进入第二步
+async function regNext() {
+  const e = $('r_email').value.trim(), p = $('r_pass').value, p2 = $('r_pass2').value, c = $('r_code').value.trim();
   if (!e || e.indexOf('@') < 0) { $('r_err').textContent = '请填写正确的邮箱'; return; }
   if (p.length < 6) { $('r_err').textContent = '密码至少 6 位'; return; }
   if (p !== p2) { $('r_err').textContent = '两次输入的密码不一致'; return; }
+  if (!/^\d{6}$/.test(c)) { $('r_err').textContent = '请填写 6 位数字验证码'; return; }
   $('r_err').textContent = '';
   try {
-    const j = await apiPost('/api/v1/auth/register', {email:e, password:p});
+    await apiPost('/api/v1/auth/verify-code', { email: e, code: c });
+    regStep(2);
+  } catch (err) { $('r_err').textContent = err.message; }
+}
+// 第二步「完成注册」：账号 + 主体信息一并提交落库
+async function regFinish() {
+  const e = $('r_email').value.trim(), p = $('r_pass').value, c = $('r_code').value.trim();
+  const name = $('r_company').value.trim(), ctry = $('r_country').value;
+  if (!name) { $('r_err2').textContent = '请填写主体名称'; return; }
+  if (!ctry) { $('r_err2').textContent = '请选择主体地区'; return; }
+  $('r_err2').textContent = '';
+  try {
+    const j = await apiPost('/api/v1/auth/register', { email: e, password: p, code: c, company_name: name, country: ctry });
     acct = blankAcct(j.user.email || e);
     curMod = 'fiat';
     await loadAllData();
-    enterApp(); toast('注册成功，先注册主体吧');
-  } catch(err) { $('r_err').textContent = err.message; }
+    enterApp(); toast('注册成功');
+  } catch (err) { $('r_err2').textContent = err.message; }
 }
 async function logout() {
   try { await apiPost('/api/v1/auth/logout', {}); } catch(e) {}
