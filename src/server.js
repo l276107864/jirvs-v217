@@ -117,6 +117,8 @@ platform.ensureSeedAdmin();
 // 支付/会话 id -> 通道
 const paymentGateway = new Map(); // payment_id -> 'stripe' | 'nowpayments'
 const sessionGateway = new Map(); // session_id -> 'stripe' | 'nowpayments'
+// Stripe OAuth 只用于把已有 Standard 账号连接到平台；换回 acct_xxx 后不保存 access_token。
+const stripeOAuthStates = new Map();
 
 // IPN 幂等：payment_id:payment_status 已处理过的直接回 200 不重复记账
 const processedIpn = new Set();
@@ -1338,6 +1340,71 @@ app.get('/api/v1/oauth/stripe/callback', async (req, res) => {
     res.redirect(`${base}/portal.html?stripe=connected&merchant_id=${encodeURIComponent(rec.merchant_id)}`);
   } catch (err) {
     fail(err.message);
+  }
+});
+
+// 已有 Stripe 账号：OAuth 授权入口。授权完成后只保存 stripe_user_id（acct_xxx）。
+app.get('/api/v1/merchants/:id/stripe/oauth/start', requireAuth, requireOwnMerchant, (req, res) => {
+  try {
+    const clientId = String(process.env.STRIPE_CONNECT_OAUTH_CLIENT_ID || '').trim();
+    if (!clientId) return res.status(503).json({ error: '未配置 STRIPE_CONNECT_OAUTH_CLIENT_ID，暂时无法连接已有 Stripe 账号' });
+    const state = crypto.randomBytes(24).toString('hex');
+    const redirectUri = process.env.STRIPE_CONNECT_OAUTH_REDIRECT_URI || `${baseUrl(req)}/api/v1/stripe/oauth/callback`;
+    stripeOAuthStates.set(state, { merchant_id: req.params.id, user_id: req.user.id, redirect_uri: redirectUri, expires_at: Date.now() + 10 * 60 * 1000 });
+    const u = new URL('https://connect.stripe.com/oauth/authorize');
+    u.searchParams.set('response_type', 'code');
+    u.searchParams.set('client_id', clientId);
+    u.searchParams.set('scope', 'read_write');
+    u.searchParams.set('redirect_uri', redirectUri);
+    u.searchParams.set('state', state);
+    res.json({ authorization_url: u.toString() });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Stripe OAuth 回调：交换一次性 code，丢弃 access_token，只保存账户 ID。
+app.get('/api/v1/stripe/oauth/callback', async (req, res) => {
+  const state = String(req.query.state || '');
+  const saved = stripeOAuthStates.get(state);
+  stripeOAuthStates.delete(state);
+  const fallback = '/portal.html?stripe=oauth_error';
+  if (!saved || saved.expires_at < Date.now()) return res.redirect(302, fallback + '&reason=invalid_state');
+  if (req.query.error) return res.redirect(302, `/portal.html?stripe=oauth_error&reason=${encodeURIComponent(String(req.query.error))}`);
+  try {
+    const secretKey = String(process.env.STRIPE_SECRET_KEY || '').trim();
+    if (!secretKey) throw new Error('Stripe 未配置 STRIPE_SECRET_KEY');
+    const body = new URLSearchParams({
+      client_secret: secretKey,
+      code: String(req.query.code || ''),
+      grant_type: 'authorization_code',
+      redirect_uri: saved.redirect_uri,
+    });
+    const r = await fetch('https://connect.stripe.com/oauth/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+    const text = await r.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!r.ok || !data.stripe_user_id) throw new Error(data.error_description || data.error || 'Stripe OAuth 授权失败');
+    let account = { id: data.stripe_user_id, charges_enabled: false, payouts_enabled: false, details_submitted: true };
+    try { account = await stripe.getConnectedAccount(data.stripe_user_id); } catch (err) { console.warn(`[stripe:oauth] 账户状态暂无法通过 v2 查询: ${err.message}`); }
+    platform.setMerchantStripe(saved.merchant_id, {
+      bound: true,
+      account_id: data.stripe_user_id,
+      oauth: true,
+      scope: data.scope || 'read_write',
+      charges_enabled: !!account.charges_enabled,
+      payouts_enabled: !!account.payouts_enabled,
+      details_submitted: !!account.details_submitted,
+      mode: data.livemode ? 'live' : 'test',
+    });
+    platform.setChannelStatus(saved.merchant_id, 'fiat', account.charges_enabled ? 'active' : 'pending');
+    res.redirect(302, `/portal.html?stripe=connected&merchant_id=${encodeURIComponent(saved.merchant_id)}&stripe_oauth=1`);
+  } catch (err) {
+    console.error(`[stripe:oauth] ${err.message}`);
+    res.redirect(302, `/portal.html?stripe=oauth_error&reason=${encodeURIComponent(err.message)}`);
   }
 });
 

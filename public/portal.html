@@ -511,11 +511,48 @@
 
 <div class="modal-mask" id="chanConfirmMask">
   <div class="modal" style="max-width:420px">
-    <h3>连接 Stripe</h3>
+    <h3>确认授权信息</h3>
     <div class="rf-row"><span>收单机构</span><b id="ccName"></b></div>
     <div class="rf-row"><span>结算币种</span><b>按你配置的币种结算</b></div>
-    <div class="rf-tip">点确认后跳转到 Stripe 官方授权页，用你自己的 Stripe 账号登录并授权（没有账号可以在那一步直接注册）。Jirvs 不收集你的账号密码和身份资料。</div>
-    <div class="mrow"><button class="primary" onclick="doConnectChan()">确认，去 Stripe 授权</button><button class="ghost" onclick="closeModal('chanConfirmMask')">取消</button></div>
+    <div class="rf-tip">点确认后将跳转到通道官方授权页完成授权，Jirvs 不收集你的通道账号密码。</div>
+    <div class="mrow"><button class="primary" onclick="doConnectChan()">确认，去授权</button><button class="ghost" onclick="closeModal('chanConfirmMask')">取消</button></div>
+  </div>
+</div>
+
+<!-- 连接收单机构：有没有账号 -->
+<div class="modal-mask" id="chanChoiceMask">
+  <div class="modal" style="max-width:420px">
+    <h3 id="chcTitle">连接 Stripe</h3>
+    <div class="line" style="margin:6px 0 4px">请选择你的情况：</div>
+    <div class="pick-grid">
+      <button class="pick" id="chcHave" onclick="pickChanChoice(true)">
+        <div class="pt" id="chcHavePt">我已有 Stripe 账号</div>
+        <div class="pd">登录 Stripe 并授权 Jirvs 读取收款账户</div>
+      </button>
+      <button class="pick" id="chcNone" onclick="pickChanChoice(false)">
+        <div class="pt" id="chcNonePt">我还没有 Stripe 账号</div>
+        <div class="pd">在 Stripe 托管页面创建并完成商户审核</div>
+      </button>
+    </div>
+    <div class="btnrow" style="flex-direction:column">
+      <button class="primary" onclick="chanChoiceGo()">继续</button>
+      <button class="ghost" onclick="closeModal('chanChoiceMask')">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 没账号：去通道官网注册 -->
+<div class="modal-mask" id="chanRegMask">
+  <div class="modal" style="max-width:420px">
+    <h3>开通 <span id="chrName">Stripe</span> 商户</h3>
+    <div class="line" style="margin:6px 0 10px">通过 Stripe Connect 完成商户注册和 KYB 审核，Jirvs 不收集你的银行卡或身份资料。</div>
+    <div class="hint">Jirvs 不收集你的开户资料，注册在通道官网完成。</div>
+    <div style="margin-top:10px"><button class="help-link" onclick="toast('演示版：正式版在此播放注册录屏教程')">📺 注册教程</button></div>
+    <div class="btnrow" style="flex-direction:column;margin-top:14px">
+      <button class="primary" onclick="regGoSite()">去官网注册</button>
+      <button class="ghost" onclick="regGoAuth()">我已注册，去授权</button>
+      <button class="ghost" onclick="closeModal('chanRegMask')">取消</button>
+    </div>
   </div>
 </div>
 
@@ -613,11 +650,6 @@ async function loadAllData() {
     try { const cj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/channels'); chState = cj.channels_state || cj || {}; } catch(e) {}
     if (new URLSearchParams(location.search).get('stripe') === 'connected') {
       try { const sj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/stripe'); m.stripe = sj.stripe || m.stripe; } catch(e) {}
-      setTimeout(() => toast('Stripe 授权成功，通道已绑定'), 600);
-    }
-    if (new URLSearchParams(location.search).get('stripe') === 'error') {
-      const em = new URLSearchParams(location.search).get('msg') || 'Stripe 授权失败';
-      setTimeout(() => toast(em), 600);
     }
     acct.fiat = {
       name: m.company_name || m.company || m.name || '',
@@ -1095,19 +1127,55 @@ function toggleChan(key) {
 let selChans = ['stripe'];
 function toggleIntSec() { $('intSec').classList.toggle('open'); }
 let chanPending = null;
-// v21.7.2: 一键 OAuth 授权——点连接直接弹确认框，确认后跳 Stripe 官方授权页。
+let chanChoiceKey = null;
+let chanChoiceSel = null;
 function chooseChan(key) {
-  if (key !== 'stripe') return;
+  chanChoiceKey = key;
+  chanChoiceSel = null;
+  const t = key === 'stripe' ? 'Stripe' : key;
+  $('chcTitle').textContent = '连接 ' + t;
+  $('chcHavePt').textContent = '我已有 ' + t + ' 账号';
+  $('chcNonePt').textContent = '我还没有 ' + t + ' 账号';
+  $('chcHave').classList.remove('on');
+  $('chcNone').classList.remove('on');
+  $('chanChoiceMask').classList.add('open');
+}
+function pickChanChoice(have) {
+  chanChoiceSel = have;
+  $('chcHave').classList.toggle('on', have === true);
+  $('chcNone').classList.toggle('on', have === false);
+}
+function chanChoiceGo() {
+  if (chanChoiceSel === null) { toast('请先选择一项'); return; }
+  if (chanChoiceSel) choiceAuth(); else choiceReg();
+}
+function choiceAuth() {
+  closeModal('chanChoiceMask');
+  if (chanChoiceKey !== 'stripe') return connectChan(chanChoiceKey);
+  apiGet('/api/v1/merchants/' + acct.merchant_id + '/stripe/oauth/start')
+    .then((j) => { if (!j.authorization_url) throw new Error('Stripe 未返回授权地址'); location.href = j.authorization_url; })
+    .catch((e) => toast(e.message));
+}
+function choiceReg() {
+  closeModal('chanChoiceMask');
+  const t = chanChoiceKey === 'stripe' ? 'Stripe' : chanChoiceKey;
+  $('chrName').textContent = t;
+  document.querySelectorAll('#chanRegMask .chnm').forEach(e => e.textContent = t);
+  $('chanRegMask').classList.add('open');
+}
+function regGoSite() { closeModal('chanRegMask'); connectChan('stripe'); }
+function regGoAuth() { closeModal('chanRegMask'); connectChan(chanChoiceKey); }
+function connectChan(key) {
   chanPending = key;
-  $('ccName').textContent = 'Stripe Connect';
+  $('ccName').textContent = key === 'stripe' ? 'Stripe Connect' : key;
   $('chanConfirmMask').classList.add('open');
 }
 function doConnectChan() {
   const key = chanPending;
   closeModal('chanConfirmMask');
   if (key !== 'stripe') return;
-  apiPost('/api/v1/merchants/' + acct.merchant_id + '/stripe/connect', {})
-    .then((j) => { if (!j.authorize_url) throw new Error('Stripe 未返回授权地址'); location.href = j.authorize_url; })
+  apiPost('/api/v1/merchants/' + acct.merchant_id + '/stripe/connect', { country: acct.fiat.country })
+    .then((j) => { if (!j.onboarding_url) throw new Error('Stripe 未返回开户链接'); location.href = j.onboarding_url; })
     .catch((e) => toast(e.message));
 }
 
