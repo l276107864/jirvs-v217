@@ -16,6 +16,7 @@ function openDb() {
     `ALTER TABLE users ADD COLUMN referral_captured_at TEXT DEFAULT ''`,
     `ALTER TABLE merchants ADD COLUMN api_pub_key_hash TEXT DEFAULT ''`,
     `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
+    `ALTER TABLE merchants ADD COLUMN stripe TEXT DEFAULT NULL`,
   ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -43,6 +44,7 @@ function openDb() {
       payoneer TEXT DEFAULT NULL,
       antom TEXT DEFAULT NULL,
       airwallex TEXT DEFAULT NULL,
+      stripe TEXT DEFAULT NULL,
       nowpayments TEXT DEFAULT NULL,
       created_at TEXT NOT NULL
     );
@@ -84,6 +86,7 @@ function openDb() {
     `ALTER TABLE users ADD COLUMN referral_captured_at TEXT DEFAULT ''`,
     `ALTER TABLE merchants ADD COLUMN api_pub_key_hash TEXT DEFAULT ''`,
     `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
+    `ALTER TABLE merchants ADD COLUMN stripe TEXT DEFAULT NULL`,
   ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
   // v21: 稳定币通道个人姓名（法币通道用 company 存公司名）；老库升级加列
   try { db.exec(`ALTER TABLE merchants ADD COLUMN personal_name TEXT DEFAULT ''`); } catch { /* 列已存在 */ }

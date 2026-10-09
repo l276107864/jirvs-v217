@@ -5,7 +5,7 @@
     "https-proxy-agent": "^9.1.0",
     "qrcode-generator": "^2.0.4"
   },
-  "description": "Jirvs 聚合收款基础设施：统一 API + Antom/Airwallex 法币通道 + Webhook 事件推送 + 托管收银台",
+  "description": "Jirvs 聚合收款基础设施：统一 API + Stripe Connect 法币通道 + Webhook 事件推送 + Stripe Checkout 托管收银台",
   "license": "MIT",
   "main": "src/server.js",
   "name": "jirvs-payments",
