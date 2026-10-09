@@ -1,6 +1,6 @@
 // 统一支付 API 服务：对标 Jirvs 聚合层的对外接口，底层走多机构适配器。
 // v18：稳定币通道由 Triple-A（已移除）切换为 NOWPayments（真实接口直调）。
-//   - 银行卡 rail=card → Antom（真实联调测通前 pending，card 不可用）
+//   - 银行卡 rail=card → Stripe Connect / Checkout（Stripe 负责商户 KYC/KYB 与卡支付）
 //   - 稳定币 rail=stablecoin → NOWPayments（真实）：商户在 NOWPayments 官网
 //     自行开户并配置自己的收款钱包，在 Jirvs 商户门户绑定自己的 API Key +
 //     IPN Secret；Jirvs 服务端代建单、收 IPN、记账，全程不碰资金。
@@ -11,6 +11,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { createAdapter: createPayoneerAdapter } = require('./payoneerAdapter');
+const { createAdapter: createStripeAdapter } = require('./stripeAdapter');
 const {
   createAdapter: createNowPaymentsAdapter,
   supportedTokens,
@@ -35,13 +36,13 @@ const PORT = process.env.PORT || 3000;
 const https = require('https');
 function sendMail({ to, subject, html }) {
   const apiKey = process.env.RESEND_API_KEY;
-  // 发件人默认用 jirvs.com（已在 Resend 验证域名）；未验证前可用 MAIL_FROM 覆盖。
-const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
+  const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
   if (!apiKey) {
     console.log(`[mail:dev] 未配置 RESEND_API_KEY，不真发。to=${to} subject=${subject}`);
     console.log(`[mail:dev] html=${String(html).slice(0, 600)}...`);
     return Promise.resolve({ dev: true });
   }
+  console.log(`[mail] 发送中 to=${to} from=${from} subject=${subject}`);
   const body = JSON.stringify({ from, to: [to], subject, html });
   return new Promise((resolve, reject) => {
     const req = https.request('https://api.resend.com/emails', {
@@ -55,17 +56,31 @@ const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) resolve(JSON.parse(data || '{}'));
-        else reject(new Error(`Resend 发信失败 (${res.statusCode}): ${data.slice(0, 200)}`));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`[mail] 发送成功 status=${res.statusCode} body=${data.slice(0, 200)}`);
+          resolve(JSON.parse(data || '{}'));
+        }
+        else {
+          console.error(`[mail] 发送失败 status=${res.statusCode} body=${data.slice(0, 300)}`);
+          reject(new Error(`Resend 发信失败 (${res.statusCode}): ${data.slice(0, 200)}`));
+        }
       });
     });
-    req.on('error', reject);
+    req.on('error', (e) => { console.error(`[mail] 网络错误 ${e.message}`); reject(e); });
     req.write(body);
     req.end();
   });
 }
-const payoneer = createPayoneerAdapter();   // Payoneer（银行卡，沙盒模拟；待 Antom 替换）
-const adapters = { payoneer };
+const payoneer = createPayoneerAdapter(); // 旧兼容适配器，新的法币流程不再使用
+const stripe = createStripeAdapter();
+const adapters = { stripe };
+// v21.7: Stripe 官方 SDK（v2 Connect 子账户、Checkout Session；Key 走环境变量）
+function stripeSdk() {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return null;
+  if (!stripeSdk._c) stripeSdk._c = require('stripe')(key);
+  return stripeSdk._c;
+}
 
 // v18: NOWPayments 适配器按商户分别实例化（用各商户自己绑定的 Key）。
 // merchant_id -> adapter 实例（绑定/解绑时清缓存）
@@ -100,8 +115,8 @@ const platform = createPlatform();
 platform.ensureSeedAdmin();
 
 // 支付/会话 id -> 通道
-const paymentGateway = new Map(); // payment_id -> 'payoneer' | 'nowpayments'
-const sessionGateway = new Map(); // session_id -> 'payoneer' | 'nowpayments'
+const paymentGateway = new Map(); // payment_id -> 'stripe' | 'nowpayments'
+const sessionGateway = new Map(); // session_id -> 'stripe' | 'nowpayments'
 
 // IPN 幂等：payment_id:payment_status 已处理过的直接回 200 不重复记账
 const processedIpn = new Set();
@@ -109,16 +124,16 @@ function ipnKey(payment_id, payment_status) {
   return `${payment_id}:${payment_status}`;
 }
 
-// v18 聚合路由：card=银行卡→Antom；stablecoin=稳定币→NOWPayments。
+// v18 聚合路由：card=银行卡→Stripe；stablecoin=稳定币→NOWPayments。
 // 用户只选支付方式，不选机构。
-// v21.2：法币通道走 Antom（真实联调测通前保持 pending，card rail 不可用）。
-const ROUTE_PRIORITY = { card: ['antom', 'airwallex'] };
+// v22：法币通道统一走 Stripe Connect。
+const ROUTE_PRIORITY = { card: ['stripe'] };
 
 // v21.2：通道是否可收款 = 对应通道有没有绿勾（channels_state.status === 'active'）。
 // 这是服务端门禁的唯一依据：收银台只显示绿勾通道，建单 API 同规则校验。
 // 法币通道（card）→ Antom 真实联调测通才绿；稳定币通道（stablecoin）→ NOWPayments Key 校验通过才绿。
 function merchantProviderReady(merchant_id, provider) {
-  if (provider === 'payoneer' || provider === 'antom') return platform.channelIsActive(merchant_id, 'fiat');
+  if (provider === 'stripe') return platform.channelIsActive(merchant_id, 'fiat');
   return false;
 }
 
@@ -148,6 +163,30 @@ app.post('/webhooks/payoneer', express.raw({ type: 'application/json' }), async 
     const event = await payoneer.parseWebhook(req);
     await eventBus.emit(event);
     res.json({ received: true, event: event.type });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// Stripe Connect Webhook：必须在 express.json() 前读取原始 body，验签后同步订单。
+app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const event = stripe.parseWebhook(req.body.toString(), req.headers['stripe-signature']);
+    if (event.event_id && processedIpn.has(`stripe:${event.event_id}`)) return res.json({ received: true, deduped: true });
+    if (event.event_id) processedIpn.add(`stripe:${event.event_id}`);
+    const order = event.order_id ? platform.getOrder(event.order_id) : platform.findOrderByPayment(event.payment_id);
+    if (order) {
+      const status = event.status === 'succeeded' ? 'succeeded' : event.status === 'canceled' ? 'canceled' : event.status === 'failed' ? 'failed' : 'pending';
+      platform.updateOrder(order.order_id, { status, payment_id: event.payment_id, gateway: 'stripe', rail: 'card' });
+      for (const rs of routedSessions.values()) {
+        if (rs.order_id === order.order_id || rs.payment_id === event.payment_id) {
+          rs.status = status === 'succeeded' ? 'complete' : status === 'canceled' || status === 'failed' ? 'closed' : rs.status;
+          rs.rail = 'card'; rs.routed_provider = 'stripe';
+        }
+      }
+      await eventBus.emit({ type: `payment.${status === 'succeeded' ? 'succeeded' : status === 'canceled' ? 'canceled' : status === 'failed' ? 'failed' : 'updated'}`, payment_id: event.payment_id, order_id: order.order_id, merchant_id: order.merchant_id, amount: order.amount, currency: order.currency, provider: 'stripe', rail: 'card' });
+    }
+    res.json({ received: true, event: event.raw_type });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -291,17 +330,17 @@ function applyNpPaymentEvent(merchant_id, event) {
 }
 
 // 商户必须存在且已完成对应通道的开户/绑定，否则直接拒绝
-async function requireOnboardedAccount(merchant_id, provider = 'payoneer') {
+async function requireOnboardedAccount(merchant_id, provider = 'stripe') {
   let m;
   try {
     m = platform.getMerchant(merchant_id);
   } catch {
     throw new Error(`商户不存在: ${merchant_id}，请先在商户门户完成入驻`);
   }
-  if (provider === 'payoneer') {
-    const info = m.payoneer;
+  if (provider === 'stripe') {
+    const info = m.stripe;
     if (!info || !info.account_id || !info.charges_enabled) {
-      throw new Error(`商户 ${merchant_id} 尚未完成 Payoneer 企业验证，暂不可收款`);
+      throw new Error(`商户 ${merchant_id} 尚未完成 Stripe Connect 企业验证，暂不可收款`);
     }
     return info.account_id;
   }
@@ -392,11 +431,68 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+// ---------- v21.7：注册邮箱验证码 ----------
+const regCodeStore = new Map(); // email -> { code, exp, lastSend }
+const REG_CODE_TTL = 10 * 60 * 1000; // 验证码 10 分钟有效
+const REG_CODE_GAP = 60 * 1000;      // 同一邮箱 60 秒内只能发一次
+
+// 获取验证码：生成 6 位数字并发送到邮箱（未配置 RESEND_API_KEY 时打印到控制台，dev 模式）
+app.post('/api/v1/auth/send-code', async (req, res) => {
+  try {
+    const email = String((req.body || {}).email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ error: '请填写正确的邮箱' });
+    const prev = regCodeStore.get(email);
+    if (prev && Date.now() - prev.lastSend < REG_CODE_GAP) return res.status(429).json({ error: '发送太频繁，请 1 分钟后再试' });
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    regCodeStore.set(email, { code, exp: Date.now() + REG_CODE_TTL, lastSend: Date.now() });
+    const html = `<p>你的 Jirvs 商户门户注册验证码是：<b style="font-size:20px;letter-spacing:4px">${code}</b>（10 分钟内有效）。</p><p>如果这不是你本人的操作，请忽略本邮件。</p>`;
+    try { await sendMail({ to: email, subject: 'Jirvs 商户门户：注册验证码', html }); }
+    catch (e) { console.error('[send-code] 发信失败:', e.message); return res.status(502).json({ error: '验证码邮件发送失败，请稍后重试' }); }
+    // 本地开发未配 RESEND_API_KEY 时，sendMail 内部会把验证码打印到控制台（服务端仍可调试）
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// 校验验证码（注册「下一步」用；不消费，真正注册时后端再校验一次防绕过）
+app.post('/api/v1/auth/verify-code', (req, res) => {
+  const email = String((req.body || {}).email || '').trim().toLowerCase();
+  const code = String((req.body || {}).code || '').trim();
+  const rec = regCodeStore.get(email);
+  if (!rec || Date.now() > rec.exp) return res.status(400).json({ error: '验证码已过期，请重新获取' });
+  if (rec.code !== code) return res.status(400).json({ error: '验证码错误' });
+  res.json({ ok: true });
+});
+
 // 账号注册：一个邮箱即可（v20：Jirvs 注册就是一个邮箱+密码）
+// v21.7：注册改为两步——先邮箱验证码校验，再填主体信息；主体信息在注册时一并落库
 app.post('/api/v1/auth/register', async (req, res) => {
   try {
-    const { email, password } = req.body || {};
-    const user = platform.createUser({ email, password });
+    const { email, password, code, company_name, country, ref_code } = req.body || {};
+    const em = String(email || '').trim().toLowerCase();
+    // 1) 验证码校验（通过后消费，一次性）
+    const rec = regCodeStore.get(em);
+    if (!rec || Date.now() > rec.exp) return res.status(400).json({ error: '验证码已过期，请重新获取' });
+    if (rec.code !== String(code || '').trim()) return res.status(400).json({ error: '验证码错误' });
+    // 2) 主体信息校验
+    const name = String(company_name || '').trim();
+    const ctry = String(country || '').trim().toUpperCase();
+    if (!name) return res.status(400).json({ error: '请填写主体名称' });
+    if (!['CN', 'HK', 'OTHER'].includes(ctry)) return res.status(400).json({ error: '请选择主体地区' });
+    // 3) 建账号
+    const user = platform.createUser({ email: em, password });
+    regCodeStore.delete(em);
+    // 4) 主体信息落库：创建商户草稿并写入公司名/地区（与门户里「完善信息」同一套存储）
+    try {
+      const created = platform.createMerchantDraft(user.id, user.email);
+      platform.saveChannelDraft(created.merchant_id, 'fiat', { name, country: ctry });
+    } catch (e) { console.error('[register] 主体信息保存失败:', e.message); }
+    const ref = String(ref_code || '').trim().toUpperCase();
+    if (ref) {
+      const partner = platform.db.prepare("SELECT ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(ref);
+      if (partner) platform.db.prepare('UPDATE users SET referral_code = ?, referral_captured_at = ? WHERE id = ?').run(ref, new Date().toISOString(), user.id);
+    }
     const sess = platform.createSession(user.id);
     setSessionCookie(req, res, sess.token, sess.expires_at);
     res.json({ user, expires_at: sess.expires_at });
@@ -480,11 +576,11 @@ app.get('/api/v1/auth/me', (req, res) => {
 app.get('/api/v1/health', (req, res) => {
   res.json({
     ok: true,
-    mode: payoneer.isSandbox() ? 'sandbox' : 'live',
+    mode: stripe.isConfigured() ? (stripe.isSandbox() ? 'test' : 'live') : 'unconfigured',
     time: now(),
     channels: {
-      // 银行卡通道：沙盒模拟（待 Antom 接入后替换为真实）
-      payoneer: { mode: payoneer.isSandbox() ? 'sandbox' : 'live' },
+      // 银行卡通道：Stripe Connect + Checkout
+      stripe: { configured: stripe.isConfigured(), mode: stripe.isConfigured() ? (stripe.isSandbox() ? 'test' : 'live') : 'unconfigured' },
       // 稳定币通道：NOWPayments 真实接口（官方已无沙盒；NOWPAYMENTS_MOCK=true 时为内存模拟）
       nowpayments: { mode: process.env.NOWPAYMENTS_MOCK === 'true' ? 'mock' : 'live' },
     },
@@ -496,7 +592,7 @@ app.get('/api/v1/health', (req, res) => {
 });
 
 // 创建支付（地理围栏：受限地区 IP 直接 403）
-// v18: rail=card 走 Payoneer（银行卡）；rail=stablecoin 走 NOWPayments（稳定币，
+// v22: rail=card 走 Stripe Checkout（银行卡）；rail=stablecoin 走 NOWPayments（稳定币，
 // 需同时传 token / network，币种与网络由调用方（收银台）指定）。
 // v20: 插件/服务端调用需带 api_key（x-api-key 头或 body.api_key），商户零部署、凭 Key 调用。
 app.post('/api/v1/payments', geoFence, requireApiKey, async (req, res) => {
@@ -561,8 +657,10 @@ app.post('/api/v1/payments', geoFence, requireApiKey, async (req, res) => {
       const acct = await requireOnboardedAccount(merchant_id, provider);
       payment = await gw.createPayment({
         merchant_id, order_id, amount, currency, description,
-        payoneer_account: provider === 'payoneer' ? acct : undefined,
+        connected_account_id: provider === 'stripe' ? acct : undefined,
         platform_fee,
+        success_url: `${base}/success.html`,
+        cancel_url: base + '/pay.html',
       });
       payment.rail = rail;
       payment.method = platform.railDisplayName({ rail });
@@ -588,7 +686,7 @@ app.post('/api/v1/payments', geoFence, requireApiKey, async (req, res) => {
 // 查询支付状态
 app.get('/api/v1/payments/:id', async (req, res) => {
   try {
-    const provider = paymentGateway.get(req.params.id) || 'payoneer';
+    const provider = paymentGateway.get(req.params.id) || 'stripe';
     if (provider === 'nowpayments') {
       // 直接查单需知道商户；先从内部订单反查
       const list = platform.listOrders({ limit: 200 }).orders;
@@ -598,6 +696,12 @@ app.get('/api/v1/payments/:id', async (req, res) => {
       return res.json(await np.getPayment(o.nowpayments_payment_id || req.params.id));
     }
     const gw = adapters[provider];
+    if (provider === 'stripe') {
+      const order = platform.findOrderByPayment(req.params.id);
+      if (!order) return res.status(404).json({ error: '支付不存在: ' + req.params.id });
+      const merchant = platform.getMerchant(order.merchant_id);
+      return res.json(await gw.getPayment(req.params.id, merchant.stripe && merchant.stripe.account_id));
+    }
     res.json(await gw.getPayment(req.params.id));
   } catch (err) {
     res.status(404).json({ error: err.message });
@@ -613,12 +717,13 @@ app.post('/api/v1/payments/:id/cancel', async (req, res) => {
     if (!order || !api_key || !platform.verifyApiKey(order.merchant_id, api_key)) {
       return res.status(401).json({ error: 'api_key 无效' });
     }
-    const provider = paymentGateway.get(req.params.id) || 'payoneer';
+    const provider = paymentGateway.get(req.params.id) || 'stripe';
     if (provider === 'nowpayments') {
       return res.status(400).json({ error: 'NOWPayments 链上支付单不支持取消接口；未付款的订单会自动过期' });
     }
     const gw = adapters[provider];
-    const payment = await gw.cancelPayment(req.params.id);
+    const merchant = platform.getMerchant(order.merchant_id);
+    const payment = await gw.cancelPayment(req.params.id, provider === 'stripe' ? merchant.stripe && merchant.stripe.account_id : undefined);
     platform.updateOrder(payment.order_id, { status: 'canceled', payment_id: payment.payment_id });
     await eventBus.emit({
       type: 'payment.canceled',
@@ -639,10 +744,11 @@ app.post('/api/v1/payments/:id/cancel', async (req, res) => {
 
 // 仅沙盒：模拟用户完成支付（银行卡通道；稳定币为真实链上支付，不可模拟）
 app.post('/api/v1/payments/:id/simulate-success', async (req, res) => {
-  const provider = paymentGateway.get(req.params.id) || 'payoneer';
+  const provider = paymentGateway.get(req.params.id) || 'stripe';
   if (provider === 'nowpayments') {
     return res.status(400).json({ error: '稳定币为真实链上支付，不支持模拟确认；请真实付款后等待到账' });
   }
+  if (provider === 'stripe') return res.status(400).json({ error: 'Stripe 使用托管 Checkout 和 Webhook，不支持本地模拟确认' });
   const gw = adapters[provider];
   if (!gw.isSandbox()) return res.status(400).json({ error: '仅沙盒模式可用' });
   try {
@@ -664,7 +770,7 @@ app.post('/api/v1/payments/:id/simulate-success', async (req, res) => {
 
 // 创建托管收银台（Checkout Session）：动态支付方式。
 // v18: 用户在收银台选支付方式（card=银行卡 / stablecoin=稳定币），
-// 走哪家机构由 Jirvs 按优先级自动决定（card→Payoneer，stablecoin→NOWPayments），
+// 走哪家机构由 Jirvs 按优先级自动决定（card→Stripe，stablecoin→NOWPayments），
 // 收银台 tab 按商户开通情况渲染（session.rail_options）。
 // v20: 需 api_key（插件把 Key 填进去就能用，商户零部署）。
 // 地理围栏：受限地区 IP 直接 403
@@ -740,10 +846,46 @@ app.get('/api/v1/checkout/sessions/:id', async (req, res) => {
   try {
     const rs = routedSessions.get(req.params.id); // 先查 Jirvs 聚合会话
     if (rs) return res.json(rs);
-    const gw = adapters[sessionGateway.get(req.params.id) || 'payoneer'];
+    const gw = adapters[sessionGateway.get(req.params.id) || 'stripe'];
     res.json(await gw.getCheckoutSession(req.params.id));
   } catch (err) {
     res.status(404).json({ error: err.message });
+  }
+});
+
+// 银行卡收银台：创建 Stripe Checkout Session 后跳转到 Stripe 托管页面。
+app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
+  const rs = routedSessions.get(req.params.id);
+  if (!rs) return res.status(404).json({ error: '收银台会话不存在或已过期' });
+  if (!rs.rail_options.includes('card')) return res.status(400).json({ error: '该商户未开通银行卡支付' });
+  try {
+    const provider = routeProvider(rs.merchant_id, 'card');
+    const account = await requireOnboardedAccount(rs.merchant_id, provider);
+    const payment = await stripe.createPayment({
+      connected_account_id: account,
+      order_id: rs.order_id,
+      merchant_id: rs.merchant_id,
+      amount: rs.amount,
+      currency: rs.currency,
+      description: rs.description || rs.order_id,
+      success_url: rs.success_url || `${baseUrl(req)}/success.html`,
+      cancel_url: rs.cancel_url || `${baseUrl(req)}/pay.html`,
+    });
+    rs.payment_id = payment.payment_id;
+    rs.session_id = rs.session_id;
+    rs.checkout_url = payment.checkout_url;
+    rs.rail = 'card';
+    rs.routed_provider = 'stripe';
+    rs.stripe_account = account;
+    rs.gateway = 'stripe';
+    rs.mode = payment.mode;
+    paymentGateway.set(payment.payment_id, 'stripe');
+    sessionGateway.set(payment.session_id, 'stripe');
+    platform.updateOrder(rs.order_id, { payment_id: payment.payment_id, gateway: 'stripe', rail: 'card', mode: payment.mode, status: payment.status });
+    await eventBus.emit({ type: 'payment.created', payment_id: payment.payment_id, order_id: rs.order_id, merchant_id: rs.merchant_id, amount: rs.amount, currency: rs.currency, provider: 'stripe', rail: 'card' });
+    res.json({ ...payment, session_id: rs.session_id, checkout_url: payment.checkout_url });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
   }
 });
 
@@ -1026,8 +1168,8 @@ app.post('/api/v1/merchants', requireAuth, async (req, res) => {
       merchant_id: mid, channel, status: profile.status, profile,
       channels_state: platform.getChannelState(mid),
       note: channel === 'fiat'
-        ? '法币主体资料已保存。请去 Antom 注册并取得 Client ID，回来粘贴验证；Antom 真实联调完成前通道保持待验证状态。'
-        : '法币主体资料已保存。请在 Antom 或 Airwallex 完成开户并回来绑定验证。',
+        ? '法币主体资料已保存。请在门户点击 Stripe Connect，完成 Stripe 企业验证后开通收款。'
+        : '法币主体资料已保存。请在门户点击 Stripe Connect 完成开户和验证。',
     };
     if (api_key) {
       out.api_key = api_key;
@@ -1138,46 +1280,81 @@ app.delete('/api/v1/merchants/:id/nowpayments', requireAuth, requireOwnMerchant,
   }
 });
 
-// v20: 法币通道直连 Antom 账户（先存直连信息；Antom 真实联调与嵌入式开户待国庆后商务落地）
-// v21.2：保存信息后通道进入"待验证"（pending，红问号），Antom 真实联调测通后才变绿
-app.post('/api/v1/merchants/:id/antom/bind', requireAuth, requireOwnMerchant, async (req, res) => {
+// v22：法币通道使用 Stripe Connect Express。
+// Stripe 负责商户身份验证、银行卡收款能力和结算；Jirvs 只保存 connected account ID 与状态。
+async function createStripeOnboarding(req, res) {
   try {
-    const { client_id, merchant_account, note, company_name } = req.body || {};
-    if (!client_id && !merchant_account) {
-      return res.status(400).json({ error: '请至少填写 Antom Client ID 或商户号其中一项' });
+    const merchant = platform.getMerchant(req.params.id);
+    const body = req.body || {};
+    const base = baseUrl(req);
+    const country = String(body.country || merchant.country || 'US').toUpperCase();
+    const refreshUrl = `${base}/api/v1/merchants/${req.params.id}/stripe/refresh`;
+    const returnUrl = process.env.STRIPE_CONNECT_RETURN_URL || `${base}/portal.html?stripe=connected&merchant_id=${encodeURIComponent(req.params.id)}`;
+    let info = merchant.stripe || {};
+    let account;
+    if (info.account_id) {
+      account = await stripe.getConnectedAccount(info.account_id);
+      const link = await stripe.createAccountLink(info.account_id, { refresh_url: refreshUrl, return_url: returnUrl });
+      info = {
+        ...info,
+        bound: true,
+        account_id: account.id,
+        charges_enabled: !!account.charges_enabled,
+        payouts_enabled: !!account.payouts_enabled,
+        details_submitted: !!account.details_submitted,
+        onboarding_url: link.url,
+        mode: stripe.isSandbox() ? 'test' : 'live',
+      };
+    } else {
+      info = await stripe.createConnectedAccount({
+        country,
+        email: merchant.email || req.user.email,
+        business_name: merchant.company_name || merchant.company || '',
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+      });
+      info.bound = true;
     }
-    const info = platform.setMerchantAntom(req.params.id, {
-      bound: true,
-      client_id: String(client_id || ''),
-      merchant_account: String(merchant_account || ''),
-      note: String(note || ''),
-      live: false, // 真实联调完成前不启用
-    });
-    if (company_name && String(company_name).trim()) {
-      platform.saveChannelDraft(req.params.id, 'fiat', { name: String(company_name).trim() });
-    }
-    platform.setChannelStatus(req.params.id, 'fiat', 'pending');
+    platform.setMerchantStripe(req.params.id, info);
+    platform.setChannelStatus(req.params.id, 'fiat', info.charges_enabled ? 'active' : 'pending');
     res.json({
-      merchant_id: req.params.id, channel: 'fiat', status: 'pending',
-      antom: { bound: info.bound, live: info.live, updated_at: info.updated_at },
-      note: 'Antom 信息已保存，待 Antom 真实联调测通后，法币通道才会开通（变绿）',
+      merchant_id: req.params.id,
+      channel: 'fiat',
+      status: info.charges_enabled ? 'active' : 'pending',
+      stripe: { bound: true, account_id: info.account_id, charges_enabled: !!info.charges_enabled, payouts_enabled: !!info.payouts_enabled, details_submitted: !!info.details_submitted, mode: info.mode, updated_at: info.updated_at || '' },
+      onboarding_url: info.onboarding_url,
+      note: info.charges_enabled ? 'Stripe 法币通道已开通' : '请在 Stripe 页面完成企业验证，完成后返回 Jirvs',
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
-});
+}
+app.post('/api/v1/merchants/:id/stripe/connect', requireAuth, requireOwnMerchant, createStripeOnboarding);
 
-// v20: 查询 Antom 绑定状态（不返回敏感字段）
-app.get('/api/v1/merchants/:id/antom', requireAuth, requireOwnMerchant, async (req, res) => {
+// Stripe 的 refresh_url：用户中断或链接过期后重新生成一次性授权链接。
+app.get('/api/v1/merchants/:id/stripe/refresh', requireAuth, requireOwnMerchant, createStripeOnboarding);
+
+// 返回 Stripe 账户最新能力状态；Stripe 审核完成后刷新即可变为 active。
+app.get('/api/v1/merchants/:id/stripe', requireAuth, requireOwnMerchant, async (req, res) => {
   try {
-    const m = platform.getMerchant(req.params.id);
-    const a = m.antom || { bound: false, live: false };
-    res.json({ merchant_id: m.merchant_id, antom: { bound: !!a.bound, live: !!a.live, updated_at: a.updated_at || '' } });
+    const merchant = platform.getMerchant(req.params.id);
+    const info = merchant.stripe || {};
+    if (!info.account_id) return res.json({ merchant_id: req.params.id, stripe: { bound: false, charges_enabled: false, payouts_enabled: false }, status: 'draft' });
+    const account = await stripe.getConnectedAccount(info.account_id);
+    const next = platform.setMerchantStripe(req.params.id, {
+      ...info,
+      bound: true,
+      charges_enabled: !!account.charges_enabled,
+      payouts_enabled: !!account.payouts_enabled,
+      details_submitted: !!account.details_submitted,
+      requirements_currently_due: account.requirements?.currently_due || [],
+    });
+    platform.setChannelStatus(req.params.id, 'fiat', account.charges_enabled ? 'active' : 'pending');
+    res.json({ merchant_id: req.params.id, stripe: { bound: true, account_id: next.account_id, charges_enabled: !!next.charges_enabled, payouts_enabled: !!next.payouts_enabled, details_submitted: !!next.details_submitted, requirements_currently_due: next.requirements_currently_due || [], mode: next.mode || (stripe.isSandbox() ? 'test' : 'live'), updated_at: next.updated_at || '' }, status: account.charges_enabled ? 'active' : 'pending' });
   } catch (err) {
-    res.status(404).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
-
 
 // 内部订单列表：登录后只看自己的商户（?status=&limit=；?merchant_id= 需属于当前账号）
 app.get('/api/v1/orders', requireAuth, async (req, res) => {
@@ -1210,7 +1387,7 @@ app.get('/api/v1/orders/:id', requireAuth, async (req, res) => {
 app.get('/api/v1/funds/overview', requireAuth, async (req, res) => {
   try {
     const overview = platform.fundsOverview(req.user.id);
-    overview.note = 'Jirvs 不经手资金、不发起退款；此处按内部订单只读汇总。如需退款请去 Antom 后台操作，Jirvs 仅同步显示状态。NOWPayments 资金直达商户自己的钱包。';
+    overview.note = 'Jirvs 不经手资金、不发起退款；此处按内部订单只读汇总。如需退款请去 Stripe 后台操作，Jirvs 仅同步显示状态。NOWPayments 资金直达商户自己的钱包。';
     res.json(overview);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -1256,7 +1433,7 @@ app.get('/api/v1/subscriptions/quote', requireAuth, (req, res) => {
   res.json({ plan: 'lifetime', currency: 'USD', amount: partner ? 199 : 299, referral_code: partner ? partner.ref_code : null });
 });
 
-app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
+app.post('/api/v1/subscriptions/checkout', requireAuth, async (req, res) => {
   try {
     const db = platform.db;
     const merchants = platform.listMerchants(req.user.id);
@@ -1266,6 +1443,8 @@ app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
       `SELECT id, status FROM subscriptions WHERE merchant_id = ? AND status IN ('active', 'pending') LIMIT 1`
     ).get(mid);
     if (exist) return res.status(400).json({ error: '已订阅，无需重复购买' });
+    const sdk = stripeSdk();
+    if (!sdk) return res.status(503).json({ error: '订阅支付暂未开通（Stripe 未配置）' });
     const now = eco.nowBJ();
     const id = eco.uid('sub');
     // v21.7：终身订阅，无到期
@@ -1278,7 +1457,18 @@ app.post('/api/v1/subscriptions/checkout', requireAuth, (req, res) => {
       db.prepare("UPDATE merchants SET partner_id = '', referred_at = '' WHERE merchant_id = ?").run(mid);
     }
     db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, referral_code, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?, ?)` ).run(id, mid, amount, partner ? partner.ref_code : '', now);
-    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, referral_code: partner ? partner.ref_code : null, status: 'pending', message: '请完成 Antom/Airwallex 订阅付款；支付机构回调确认后才会开通并计佣。' });
+    // v21.7: Stripe Checkout（一次付清；卡 / 微信支付 / 支付宝，需在 Stripe 后台启用）
+    const session = await sdk.checkout.sessions.create({
+      mode: 'payment',
+      payment_method_types: ['card', 'wechat_pay', 'alipay'],
+      line_items: [{ price_data: { currency: 'usd', unit_amount: Math.round(amount * 100), product_data: { name: 'Jirvs 终身订阅' } }, quantity: 1 }],
+      success_url: `${baseUrl(req)}/portal.html?sub=success`,
+      cancel_url: `${baseUrl(req)}/portal.html?sub=cancel`,
+      client_reference_id: id,
+      metadata: { subscription_id: id, merchant_id: mid },
+    });
+    try { db.prepare('UPDATE subscriptions SET stripe_session_id = ? WHERE id = ?').run(session.id, id); } catch {}
+    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, referral_code: partner ? partner.ref_code : null, status: 'pending', checkout_url: session.url, message: '请完成 Stripe 订阅付款；支付成功回调确认后才会开通并计佣。' });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1389,6 +1579,22 @@ app.post('/api/admin/partners', requireAdmin, (req, res) => {
         b.contract_no || '', b.signed_at || '', b.sign_ip || '', now);
     platform.logAdmin(req.admin.email, '添加伙伴', b.name, '');
     res.json({ ok: true, id });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
+// v21.7: 后台切换伙伴合同版本（V1 生态 30% / V2 战略 50%，特邀）
+// 注册时不可见 V2；仅管理员可切换。佣金按产生时的合同版本快照，已产生的佣金不受影响。
+app.post('/api/admin/partners/:id/contract', requireAdmin, (req, res) => {
+  try {
+    const db = platform.db;
+    const ver = (req.body || {}).contract_ver;
+    if (ver !== 'V1' && ver !== 'V2') return res.status(400).json({ error: 'contract_ver 只能是 V1 或 V2' });
+    const p = db.prepare('SELECT id, name, contract_ver FROM partners WHERE id = ?').get(req.params.id);
+    if (!p) return res.status(404).json({ error: '伙伴不存在' });
+    if ((p.contract_ver || 'V1') === ver) return res.json({ ok: true, unchanged: true, contract_ver: ver });
+    const rate = ver === 'V2' ? 50 : 30;
+    db.prepare('UPDATE partners SET contract_ver = ?, rate = ? WHERE id = ?').run(ver, rate, req.params.id);
+    platform.logAdmin(req.admin.email, '切换伙伴合同版本', p.name, `${p.contract_ver || 'V1'} → ${ver}`);
+    res.json({ ok: true, contract_ver: ver, rate });
   } catch (e) { res.status(400).json({ error: e.message }); }
 });
 app.post('/api/admin/partners/:id/payout', requireAdmin, (req, res) => {
@@ -1587,9 +1793,9 @@ function renderCheckout(s, provider = 'payoneer') {
   const initStable = (singleRail && showStable) || (!routed && s.rail === 'stablecoin' && showStable);
   // v20: 页脚只写当前 tab 对应的机构（聚合页初始 tab 是哪个就写哪个；切换时 JS 跟着换）
   const secureNote = routed
-    ? (initStable ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs' : '安全支付由 Antom 提供 · 技术支持 Jirvs')
+    ? (initStable ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs' : '安全支付由 Stripe 提供 · 技术支持 Jirvs')
     : provider === 'nowpayments' ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs'
-    : '安全支付由 Antom 提供 · 技术支持 Jirvs';
+    : '安全支付由 Stripe 提供 · 技术支持 Jirvs';
   // v20: success_url 不传就留空（成功页不自动跳，"返回商家"用浏览器返回），
   // 不再默认指向 /pay.html（登录后的开发者调试页）。
   const returnUrl = String(s.success_url || '').replace('{CHECKOUT_SESSION_ID}', s.session_id);
@@ -1961,7 +2167,7 @@ async function initStablecoin() {
 }
 
 // v20: 页脚"安全支付由 XX 提供"跟着当前 tab 走——
-// 用户付稳定币时只显示 NOWPayments，付银行卡时只显示 Antom，
+// 用户付稳定币时只显示 NOWPayments，付银行卡时只显示 Stripe，
 // 不在稳定币付款时把法币通道的机构也列出来（用户分不清到底谁在处理这笔钱）。
 // 单通道页面（非聚合）页脚本来就只写一家，不用动。
 var ROUTED = ${routed ? 'true' : 'false'};
@@ -1970,7 +2176,7 @@ function setSecureNote(rail) {
   if (!el || !ROUTED) return;
   el.textContent = rail === 'stablecoin'
     ? '安全支付由 NOWPayments 提供 · 技术支持 Jirvs'
-    : '安全支付由 Antom 提供 · 技术支持 Jirvs';
+    : '安全支付由 Stripe 提供 · 技术支持 Jirvs';
 }
 function pickCard() {
   clearTimers();
@@ -1998,11 +2204,15 @@ if (tabStable) tabStable.onclick = pickStable;
 async function doPay(rail) {
   payBtn.disabled = true; payBtn.textContent = '处理中…';
   try {
-    var r = await fetch('/api/v1/checkout/sessions/' + sid + '/simulate-success', {
+    var endpoint = rail === 'card'
+      ? '/api/v1/checkout/sessions/' + sid + '/card/checkout'
+      : '/api/v1/checkout/sessions/' + sid + '/simulate-success';
+    var r = await fetch(endpoint, {
       method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ rail: rail })
     });
     var d = await r.json();
     if (!r.ok) throw new Error(d.error || '支付失败');
+    if (rail === 'card' && d.checkout_url) { location.href = d.checkout_url; return; }
     var p = d.payment || {};
     var qs = '/success.html?session_id=' + sid + '&payment_id=' + p.payment_id + '&rail=' + rail
       + '&method=' + encodeURIComponent(p.method || (rail === 'stablecoin' ? '稳定币' : '银行卡'));
@@ -2030,7 +2240,7 @@ if (SHOW_STABLE) initStablecoin().then(function () {
 
 app.listen(PORT, () => {
   console.log(`支付服务已启动: http://localhost:${PORT}`);
-  console.log(`法币通道: Antom 真实联调待国庆后商务落地（联调测通前通道保持待验证）`);
+  console.log(`法币通道: Stripe Connect + Stripe Checkout（需配置 STRIPE_SECRET_KEY）`);
   console.log(`通道 nowpayments（稳定币）: ${process.env.NOWPAYMENTS_MOCK === 'true' ? 'mock（内存模拟，单元测试用）' : 'live（NOWPayments 真实接口）'}`);
   console.log(`演示页: http://localhost:${PORT}/`);
 });

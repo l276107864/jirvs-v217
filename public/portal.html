@@ -148,6 +148,11 @@
   #authWrap { max-width:420px; margin:60px auto; background:#fff; border:1px solid var(--border); border-radius:24px; padding:32px; box-shadow:0 30px 80px rgba(15,23,42,.11),0 5px 18px rgba(15,23,42,.04); }
   #authWrap h2 { margin:0 0 4px; font-size:22px; font-weight:800; letter-spacing:-.03em; }
   #authWrap h2 .j { color:var(--accent); }
+  /* v21.7：注册第一步——邮箱 + 获取验证码按钮同行 */
+  #authWrap .row2 { display:flex; gap:8px; }
+  #authWrap .row2 input { flex:1; width:auto; min-width:0; }
+  #authWrap .row2 button { flex:none; white-space:nowrap; }
+  #authWrap .row2 button:disabled { opacity:.55; cursor:not-allowed; }
   .linklike { background:none; border:0; color:var(--accent); font-size:13px; padding:0; cursor:pointer; }
   #toast { position:fixed; left:50%; bottom:28px; transform:translateX(-50%); background:var(--text); color:#fff; padding:10px 18px; border-radius:20px; font-size:13px; display:none; z-index:200; max-width:88vw; text-align:center; }
   #appWrap { display:none; }
@@ -276,11 +281,27 @@
 
   </div>
   <div id="authReg" style="display:none">
-    <label>邮箱（账号就是邮箱）</label><input id="r_email" type="email" placeholder="you@company.com" autocomplete="off" />
-    <label>密码</label><input id="r_pass" type="password" placeholder="至少 6 位" autocomplete="new-password" />
-    <label>确认密码</label><input id="r_pass2" type="password" placeholder="再输一次" autocomplete="new-password" />
-    <div class="err" id="r_err"></div>
-    <div style="margin-top:14px"><button class="primary" style="width:100%" onclick="regSubmit()">注册</button></div>
+    <!-- 第一步：账号信息 + 邮箱验证码 -->
+    <div id="regStep1">
+      <label>邮箱（账号就是邮箱）</label>
+      <div class="row2">
+        <input id="r_email" type="email" placeholder="you@company.com" autocomplete="off" />
+        <button id="r_send" class="ghost" onclick="sendRegCode()">获取验证码</button>
+      </div>
+      <label>验证码</label><input id="r_code" inputmode="numeric" maxlength="6" placeholder="6 位数字验证码" autocomplete="one-time-code" />
+      <label>密码</label><input id="r_pass" type="password" placeholder="至少 6 位" autocomplete="new-password" />
+      <label>确认密码</label><input id="r_pass2" type="password" placeholder="再输一次" autocomplete="new-password" />
+      <div class="err" id="r_err"></div>
+      <div style="margin-top:14px"><button class="primary" style="width:100%" onclick="regNext()">下一步</button></div>
+    </div>
+    <!-- 第二步：完善主体信息 -->
+    <div id="regStep2" style="display:none">
+      <label>主体名称</label><input id="r_company" placeholder="与营业执照一致" autocomplete="off" />
+      <label>主体地区</label>
+      <select id="r_country"><option value="" selected>请选择地区</option><option value="CN">中国大陆</option><option value="HK">中国香港</option><option value="OTHER">其他地区</option></select>
+      <div class="err" id="r_err2"></div>
+      <div class="mrow"><button class="primary" onclick="regFinish()">完成注册</button><button class="ghost" onclick="regBack()">上一步</button></div>
+    </div>
     <div class="hint">注册后进入门户，完成企业注册即可连接收款通道；生成 Key 时再订阅。</div>
     <div style="margin-top:12px; text-align:center; font-size:13px; color:var(--muted)">已有账号？ <button class="linklike" onclick="showLogin()">去登录</button></div>
   </div>
@@ -331,8 +352,8 @@
       <div class="fchecks">
         <span class="fchk-t">通道</span>
         <span class="fchk-opts">
-        <label><input type="checkbox" class="f_ch" value="Antom" onchange="renderOrders('fiat')">Antom</label>
-        <label><input type="checkbox" class="f_ch" value="Airwallex" onchange="renderOrders('fiat')">Airwallex</label>
+        <label><input type="checkbox" class="f_ch" value="Stripe" onchange="renderOrders('fiat')">Stripe</label>
+
         </span>
       </div>
       <div class="fchecks">
@@ -407,7 +428,7 @@
     <select id="er_country"><option value="" selected>请选择地区</option><option value="CN">中国大陆</option><option value="HK">中国香港</option><option value="OTHER">其他地区</option></select>
     <div class="err" id="er_err"></div>
     <div class="mrow"><button class="primary" onclick="eRegSubmit()">完成注册</button><button class="ghost" onclick="closeModal('eRegMask')">取消</button></div>
-    <div class="hint">Antom / Airwallex 在「法币」模块里连接，通道审核由 Antom / Airwallex 完成。</div>
+    <div class="hint">Stripe Connect 在「法币」模块里连接，Stripe 负责商户验证和银行卡收款能力审核。</div>
   </div>
 </div>
 
@@ -501,15 +522,15 @@
 <!-- 连接收单机构：有没有账号 -->
 <div class="modal-mask" id="chanChoiceMask">
   <div class="modal" style="max-width:420px">
-    <h3 id="chcTitle">连接 Antom</h3>
+    <h3 id="chcTitle">连接 Stripe</h3>
     <div class="line" style="margin:6px 0 4px">请选择你的情况：</div>
     <div class="pick-grid">
       <button class="pick" id="chcHave" onclick="pickChanChoice(true)">
-        <div class="pt" id="chcHavePt">我已有 Antom 账号</div>
+        <div class="pt" id="chcHavePt">我已有 Stripe 账号</div>
         <div class="pd">直接去官方授权页绑定</div>
       </button>
       <button class="pick" id="chcNone" onclick="pickChanChoice(false)">
-        <div class="pt" id="chcNonePt">我还没有 Antom 账号</div>
+        <div class="pt" id="chcNonePt">我还没有 Stripe 账号</div>
         <div class="pd">先去官网注册商户号</div>
       </button>
     </div>
@@ -523,8 +544,8 @@
 <!-- 没账号：去通道官网注册 -->
 <div class="modal-mask" id="chanRegMask">
   <div class="modal" style="max-width:420px">
-    <h3>注册 <span id="chrName">Antom</span> 商户</h3>
-    <div class="line" style="margin:6px 0 10px">去 <b class="chnm">Antom</b> 官网完成商户注册（KYB 审核），拿到商户号后再回来授权连接。</div>
+    <h3>开通 <span id="chrName">Stripe</span> 商户</h3>
+    <div class="line" style="margin:6px 0 10px">通过 Stripe Connect 完成商户注册和 KYB 审核，Jirvs 不收集你的银行卡或身份资料。</div>
     <div class="hint">Jirvs 不收集你的开户资料，注册在通道官网完成。</div>
     <div style="margin-top:10px"><button class="help-link" onclick="toast('演示版：正式版在此播放注册录屏教程')">📺 注册教程</button></div>
     <div class="btnrow" style="flex-direction:column;margin-top:14px">
@@ -597,7 +618,7 @@ function xformOrder(o) {
   const cur = String(o.currency||'').toUpperCase();
   const sym = cur === 'CNY' ? '¥' : '$';
   const amt = sym + Number(o.amount||0).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const ch = /antom/i.test(o.gateway||'') ? 'Antom' : (/airwallex/i.test(o.gateway||'') ? 'Airwallex' : (o.gateway||''));
+  const ch = /stripe/i.test(o.gateway||'') ? 'Stripe' : (o.gateway||'');
   const t = String(o.created_at||'').slice(0,16).replace('T',' ');
   return {id:o.order_id, ch, status:mapOrderStatus(o.status), t, amt,
     cur:cur, amtNum:Number(o.amount||0),
@@ -627,11 +648,13 @@ async function loadAllData() {
     // 通道状态
     let chState = {};
     try { const cj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/channels'); chState = cj.channels_state || cj || {}; } catch(e) {}
+    if (new URLSearchParams(location.search).get('stripe') === 'connected') {
+      try { const sj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/stripe'); m.stripe = sj.stripe || m.stripe; } catch(e) {}
+    }
     acct.fiat = {
       name: m.company_name || m.company || m.name || '',
       country: m.country || '',
-      antom: (chState.antom && chState.antom.status === 'active') ? 'active' : 'none',
-      airwallex: (chState.airwallex && chState.airwallex.status === 'active') ? 'active' : 'none',
+      stripe: (m.stripe && m.stripe.charges_enabled) || (chState.fiat && chState.fiat.status === 'active') ? 'active' : 'none',
     };
   } else {
     acct.fiat = null;
@@ -665,7 +688,10 @@ function buildNotifs(orders) {
 
 /* ===== 登录/注册 ===== */
 function showReg() {
-  $('r_email').value = ''; $('r_pass').value = ''; $('r_pass2').value = '';
+  $('r_email').value = ''; $('r_code').value = ''; $('r_pass').value = ''; $('r_pass2').value = '';
+  $('r_company').value = ''; $('r_country').value = '';
+  $('r_err').textContent = ''; $('r_err2').textContent = '';
+  regStep(1);
   $('authLogin').style.display = 'none'; $('authReg').style.display = 'block';
 }
 function showLogin() { $('authReg').style.display = 'none'; $('authLogin').style.display = 'block'; }
@@ -695,19 +721,58 @@ async function checkSession() {
     }
   } catch(e) { /* 未登录，停留在登录页 */ }
 }
-async function regSubmit() {
-  const e = $('r_email').value.trim(), p = $('r_pass').value, p2 = $('r_pass2').value;
+/* ===== v21.7：两步式注册（第一步验证码 → 第二步主体信息） ===== */
+let regCd = 0, regCdTimer = null;
+function regStep(n) {
+  $('regStep1').style.display = n === 1 ? 'block' : 'none';
+  $('regStep2').style.display = n === 2 ? 'block' : 'none';
+}
+function regBack() { regStep(1); }
+// 发送 6 位数字验证码到注册邮箱（60 秒倒计时防刷）
+async function sendRegCode() {
+  const e = $('r_email').value.trim(), btn = $('r_send');
+  if (!e || e.indexOf('@') < 0) { $('r_err').textContent = '请先填写正确的邮箱'; return; }
+  $('r_err').textContent = '';
+  try {
+    const j = await apiPost('/api/v1/auth/send-code', { email: e });
+    toast('验证码已发送，请查收邮箱');
+    regCd = 60;
+    btn.disabled = true;
+    btn.textContent = regCd + 's 后重发';
+    regCdTimer = setInterval(() => {
+      regCd--;
+      if (regCd > 0) { btn.textContent = regCd + 's 后重发'; return; }
+      clearInterval(regCdTimer); btn.disabled = false; btn.textContent = '获取验证码';
+    }, 1000);
+  } catch (err) { $('r_err').textContent = err.message; }
+}
+// 第一步「下一步」：本地校验 + 后端校验验证码一致后才进入第二步
+async function regNext() {
+  const e = $('r_email').value.trim(), p = $('r_pass').value, p2 = $('r_pass2').value, c = $('r_code').value.trim();
   if (!e || e.indexOf('@') < 0) { $('r_err').textContent = '请填写正确的邮箱'; return; }
   if (p.length < 6) { $('r_err').textContent = '密码至少 6 位'; return; }
   if (p !== p2) { $('r_err').textContent = '两次输入的密码不一致'; return; }
+  if (!/^\d{6}$/.test(c)) { $('r_err').textContent = '请填写 6 位数字验证码'; return; }
   $('r_err').textContent = '';
   try {
-    const j = await apiPost('/api/v1/auth/register', {email:e, password:p});
+    await apiPost('/api/v1/auth/verify-code', { email: e, code: c });
+    regStep(2);
+  } catch (err) { $('r_err').textContent = err.message; }
+}
+// 第二步「完成注册」：账号 + 主体信息一并提交落库
+async function regFinish() {
+  const e = $('r_email').value.trim(), p = $('r_pass').value, c = $('r_code').value.trim();
+  const name = $('r_company').value.trim(), ctry = $('r_country').value;
+  if (!name) { $('r_err2').textContent = '请填写主体名称'; return; }
+  if (!ctry) { $('r_err2').textContent = '请选择主体地区'; return; }
+  $('r_err2').textContent = '';
+  try {
+    const j = await apiPost('/api/v1/auth/register', { email: e, password: p, code: c, company_name: name, country: ctry });
     acct = blankAcct(j.user.email || e);
     curMod = 'fiat';
     await loadAllData();
-    enterApp(); toast('注册成功，先注册主体吧');
-  } catch(err) { $('r_err').textContent = err.message; }
+    enterApp(); toast('注册成功');
+  } catch (err) { $('r_err2').textContent = err.message; }
 }
 async function logout() {
   try { await apiPost('/api/v1/auth/logout', {}); } catch(e) {}
@@ -727,7 +792,7 @@ function renderHeader() {
   // v21.7：把国家代码转中文展示（CN→中国大陆 / HK→中国香港 / OTHER→其他地区）
   $('subBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : '升级订阅';
   $('fiatVal').innerHTML = acct.fiat
-    ? `<span class="subjname">${esc(acct.fiat.name)}</span><span class="country-tag">（${esc(countryName(acct.fiat.country))}）</span>`
+    ? `<span class="subjname">${esc(acct.fiat.name)}</span><span class="country-tag">（${esc((acct.fiat.country || '').toUpperCase() || '—')}）</span>`
     : `<button class="danger-outline btn-sm" style="flex:none" onclick="askEntReg()">完善信息</button>`;
 }
 function switchMod(m) {
@@ -842,11 +907,6 @@ function renderBrief() {
       <div class="bn">${sumByCurStr(inR, '已支付')}</div>
       <div class="bd">收款 ${paid.length} 笔 · 退款 ${refund.length} 笔 ${sumByCurStr(inR, '已退款')} · 失败 ${failed.length} 笔</div>
     </div>` + kpi;
-}
-/* ===== v21.7：国家代码 → 中文名 ===== */
-function countryName(c) {
-  const m = { CN: '中国大陆', HK: '中国香港', SG: '新加坡', OTHER: '其他地区' };
-  return m[String(c || '').toUpperCase()] || (c || '—');
 }
 /* ===== 收款统计 ===== */
 function renderStats() {
@@ -994,6 +1054,7 @@ async function eRegSubmit() {
 
 /* ===== 订阅 ===== */
 let pick = 'month';
+(function(){const q=new URLSearchParams(location.search);if(q.get('sub')==='success'){setTimeout(()=>toast('订阅支付成功，正在开通…'),600);}if(q.get('sub')==='cancel'){setTimeout(()=>toast('已取消支付，可重新下单'),600);}})();
 function openSub() {
   const linkRef = new URLSearchParams(location.search).get('ref') || new URLSearchParams(location.search).get('ref_code') || '';
   if (linkRef && !$('subRefCode').value) $('subRefCode').value = linkRef.toUpperCase();
@@ -1011,6 +1072,7 @@ async function buySub() {
   try {
     const refCode = $('subRefCode').value.trim();
     const result = await apiPost('/api/v1/subscriptions/checkout', refCode ? { ref_code: refCode } : {});
+    if (result.checkout_url) { location.href = result.checkout_url; return; }
     await loadAllData();
     closeModal('subMask');
     renderHeader();
@@ -1040,7 +1102,7 @@ function renderFiatChannels() {
     $('fiatChanBody').innerHTML = `<div class="noreg">还没完善主体信息<br><span style="font-size:12.5px">点上方「完善信息」，完成后即可连接收单机构</span></div>`;
     return;
   }
-  const intro = {antom:'优势：亚洲与新兴市场，本地电子钱包', airwallex:'优势：欧美及亚太核心，信用卡与本地卡'};
+  const intro = {stripe:'优势：Stripe Connect 托管开户、银行卡收款和商户结算'};
   const card = (key, title) => {
     const on = acct.fiat[key] === 'active';
     const sel = on && selChans.includes(key);
@@ -1051,7 +1113,7 @@ function renderFiatChannels() {
            : `<div class="btnrow"><button class="primary" id="conn_${key}" onclick="chooseChan('${key}')">连接 ${title}</button></div>`}
     </div>`;
   };
-  $('fiatChanBody').innerHTML = `<div class="chan-grid">${card('antom', 'Antom')}${card('airwallex', 'Airwallex')}</div>`;
+  $('fiatChanBody').innerHTML = `<div class="chan-grid">${card('stripe', 'Stripe')}</div>`;
 }
 function toggleChan(key) {
   if (acct.fiat[key] !== 'active') return;
@@ -1062,7 +1124,7 @@ function toggleChan(key) {
   } else selChans.push(key);
   renderFiatChannels();
 }
-let selChans = ['antom', 'airwallex'];
+let selChans = ['stripe'];
 function toggleIntSec() { $('intSec').classList.toggle('open'); }
 let chanPending = null;
 let chanChoiceKey = null;
@@ -1070,7 +1132,7 @@ let chanChoiceSel = null;
 function chooseChan(key) {
   chanChoiceKey = key;
   chanChoiceSel = null;
-  const t = key === 'antom' ? 'Antom' : 'Airwallex';
+  const t = key === 'stripe' ? 'Stripe' : key;
   $('chcTitle').textContent = '连接 ' + t;
   $('chcHavePt').textContent = '我已有 ' + t + ' 账号';
   $('chcNonePt').textContent = '我还没有 ' + t + ' 账号';
@@ -1090,24 +1152,25 @@ function chanChoiceGo() {
 function choiceAuth() { closeModal('chanChoiceMask'); connectChan(chanChoiceKey); }
 function choiceReg() {
   closeModal('chanChoiceMask');
-  const t = chanChoiceKey === 'antom' ? 'Antom' : 'Airwallex';
+  const t = chanChoiceKey === 'stripe' ? 'Stripe' : chanChoiceKey;
   $('chrName').textContent = t;
   document.querySelectorAll('#chanRegMask .chnm').forEach(e => e.textContent = t);
   $('chanRegMask').classList.add('open');
 }
-function regGoSite() { const t = chanChoiceKey === 'antom' ? 'Antom' : 'Airwallex'; toast('演示版：正式版跳转' + t + '官方注册页'); }
+function regGoSite() { closeModal('chanRegMask'); connectChan('stripe'); }
 function regGoAuth() { closeModal('chanRegMask'); connectChan(chanChoiceKey); }
 function connectChan(key) {
   chanPending = key;
-  $('ccName').textContent = key === 'antom' ? 'Antom' : 'Airwallex';
+  $('ccName').textContent = key === 'stripe' ? 'Stripe Connect' : key;
   $('chanConfirmMask').classList.add('open');
 }
 function doConnectChan() {
   const key = chanPending;
   closeModal('chanConfirmMask');
-  // v21.7：引导用户去对应机构官网注册，回填凭证
-  const name = key === 'antom' ? 'Antom' : 'Airwallex';
-  toast('请去 ' + name + ' 官网完成商户注册，取得凭证后回填绑定');
+  if (key !== 'stripe') return;
+  apiPost('/api/v1/merchants/' + acct.merchant_id + '/stripe/connect', { country: acct.fiat.country })
+    .then((j) => { if (!j.onboarding_url) throw new Error('Stripe 未返回开户链接'); location.href = j.onboarding_url; })
+    .catch((e) => toast(e.message));
 }
 
 /* ===== 微信借鉴：金额解析 / 按日分组 / 月度汇总 ===== */
@@ -1245,7 +1308,7 @@ function openRefundModal(id) {
 }
 function doRefund() {
   // v21.6：Jirvs 不发起退款，请去通道后台操作
-  alert('Jirvs 不发起退款。如需退款请去 Antom / Airwallex 后台操作，状态会自动同步。');
+  alert('Jirvs 不发起退款。如需退款请去 Stripe 后台操作，状态会自动同步。');
   closeModal('refundMask');
   return;
   const btn = $('rfConfirm');

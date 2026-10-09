@@ -1368,19 +1368,28 @@ let vipEditId = null;
 function openVipSet(id) {
   const p = PARTNERS.find((x) => x.id === id); vipEditId = id;
   $('vipSetTitle').textContent = '特批设置 · ' + p.name;
-  $('vipSetBody').innerHTML = `<label style="display:flex;gap:8px;align-items:center;margin:6px 0 12px"><input type="checkbox" id="vsOn" ${p.vip ? 'checked' : ''}> 开通特邀战略合作伙伴（伙伴中心特批卡将点亮）</label>
+  const isV2 = p.contractVer === 'V2';
+  $('vipSetBody').innerHTML = `<label style="display:flex;gap:8px;align-items:center;margin:6px 0 12px"><input type="checkbox" id="vsOn" ${isV2 ? 'checked' : ''}> 设为战略合作伙伴（V2，佣金 50%）</label>
 
-  <p class="desc" style="margin-top:10px">V1 生态合作伙伴 30% · V2 战略合作伙伴 50%，一次性返佣。签哪个拿哪个。${p.vip && p.vip.signed ? '<br>该伙伴已签署特批协议（' + esc(p.vip.signTime) + '）。' : ''}</p>`;
+  <p class="desc" style="margin-top:10px">生态合作伙伴（V1）佣金 30%，战略合作伙伴（V2，特邀）佣金 50%，一次性返佣。切换只影响之后新产生的佣金，已产生的按产生时比例结算。当前：${isV2 ? 'V2 战略 50%' : 'V1 生态 30%'}。</p>`;
   $('vipSetModal').classList.add('open');
 }
-function saveVipSet() {
+async function saveVipSet() {
   const p = PARTNERS.find((x) => x.id === vipEditId); if (!p) return;
-  const on = $('vsOn').checked;
-  if (on) { p.vip = Object.assign({}, p.vip, { rateM: 40, rateY: 50 }); }
-  else { p.vip = null; }
-  $('vipSetModal').classList.remove('open');
-  renderCommission();
-  toastAdmin(on ? '特批已开通，伙伴中心将点亮特批卡' : '已关闭该伙伴的特批');
+  const ver = $('vsOn').checked ? 'V2' : 'V1';
+  try {
+    const r = await fetch('/api/admin/partners/' + encodeURIComponent(vipEditId) + '/contract', {
+      method: 'POST', credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contract_ver: ver }),
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || '保存失败');
+    p.contractVer = ver;
+    $('vipSetModal').classList.remove('open');
+    renderCommission();
+    toastAdmin(ver === 'V2' ? '已设为战略合作伙伴（V2），其新产生的佣金按 50% 计' : '已切回生态合作伙伴（V1），其新产生的佣金按 30% 计');
+  } catch (e) { toastAdmin('保存失败：' + e.message); }
 }
 
 function doPayout(pid) {
