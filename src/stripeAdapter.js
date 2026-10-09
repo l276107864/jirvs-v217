@@ -63,13 +63,20 @@ function createAdapter() {
     return data;
   }
 
-  // v21.7: v2 API（JSON），用于 Connect 子账户（v1 type=express 已被 Stripe 停用）
+  // v21.7: v2 API（JSON），用于 Connect 子账户（v1 type=express 已被 Stripe 停用）。
+  // Stripe v2 强制要求 Stripe-Version；允许通过环境变量覆盖，以匹配账户/预览版本。
   const API_V2 = 'https://api.stripe.com/v2';
+  const apiVersion = String(process.env.STRIPE_API_VERSION || '2026-08-26.preview').trim();
   async function apiFetchV2(path, { method = 'GET', json = null } = {}) {
     if (!secretKey) throw new Error('Stripe 未配置 STRIPE_SECRET_KEY');
     const res = await fetch(`${API_V2}${path}`, {
       method,
-      headers: { 'Authorization': `Bearer ${secretKey}`, 'Content-Type': 'application/json', 'Accept': 'application/json' },
+      headers: {
+        'Authorization': `Bearer ${secretKey}`,
+        'Stripe-Version': apiVersion,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+      },
       body: json ? JSON.stringify(json) : undefined,
     });
     const text = await res.text();
@@ -122,7 +129,7 @@ function createAdapter() {
   }
 
   async function getConnectedAccount(account_id) {
-    const acct = await apiFetchV2(`/core/accounts/${encodeURIComponent(account_id)}?include[]=configuration.merchant`);
+    const acct = await apiFetchV2(`/core/accounts/${encodeURIComponent(account_id)}?include[0]=configuration.merchant`);
     // 归一化为 v1 风格字段，方便上层判断
     return { ...acct, charges_enabled: isConnectReady(acct), payouts_enabled: false, details_submitted: isConnectReady(acct) };
   }
