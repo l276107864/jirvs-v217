@@ -63,75 +63,69 @@ function createAdapter() {
     return data;
   }
 
-  // v21.7: v2 API（JSON），用于 Connect 子账户（v1 type=express 已被 Stripe 停用）。
-  // Stripe v2 强制要求 Stripe-Version；允许通过环境变量覆盖，以匹配账户/预览版本。
-  const API_V2 = 'https://api.stripe.com/v2';
-  const apiVersion = String(process.env.STRIPE_API_VERSION || '2026-08-26.preview').trim();
-  async function apiFetchV2(path, { method = 'GET', json = null } = {}) {
+  // v21.7.2: Stripe Connect OAuth 一键授权（取代 v2 建子账号）。
+  // 商户点授权后跳 Stripe 官方页登录/注册并授权；Jirvs 不调接口替商户建账号、不碰身份资料。
+  // 需要在 Stripe 后台 Connect 设置里拿到 OAuth client_id（配 STRIPE_CLIENT_ID 环境变量），
+  // 并把回调地址登记为 Redirect URI。
+  const OAUTH_AUTHORIZE_URL = 'https://connect.stripe.com/oauth/authorize';
+  const OAUTH_TOKEN_URL = 'https://connect.stripe.com/oauth/token';
+
+  function getOAuthClientId() {
+    return String(process.env.STRIPE_CLIENT_ID || '').trim();
+  }
+
+  // 拼授权跳转地址；state 由调用方生成并校验（防 CSRF）。
+  function getOAuthAuthorizeUrl({ redirect_uri, state }) {
+    const clientId = getOAuthClientId();
+    if (!clientId) throw new Error('Stripe 未配置 STRIPE_CLIENT_ID（请在 Stripe 后台 Connect 设置里获取 OAuth client_id）');
+    const q = new URLSearchParams({
+      response_type: 'code',
+      client_id: clientId,
+      scope: 'read_write',
+      redirect_uri: String(redirect_uri || ''),
+      state: String(state || ''),
+    });
+    return `${OAUTH_AUTHORIZE_URL}?${q.toString()}`;
+  }
+
+  // 用授权码换 connected account ID（stripe_user_id）。
+  async function exchangeOAuthCode({ code, redirect_uri }) {
+    const clientId = getOAuthClientId();
+    if (!clientId) throw new Error('Stripe 未配置 STRIPE_CLIENT_ID');
     if (!secretKey) throw new Error('Stripe 未配置 STRIPE_SECRET_KEY');
-    const res = await fetch(`${API_V2}${path}`, {
-      method,
-      headers: {
-        'Authorization': `Bearer ${secretKey}`,
-        'Stripe-Version': apiVersion,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-      body: json ? JSON.stringify(json) : undefined,
+    const body = new URLSearchParams({
+      client_secret: secretKey,
+      code: String(code || ''),
+      grant_type: 'authorization_code',
+    });
+    if (redirect_uri) body.set('redirect_uri', String(redirect_uri));
+    const res = await fetch(OAUTH_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+      body: body.toString(),
     });
     const text = await res.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
-    if (!res.ok) throw new Error(`Stripe v2 API 调用失败 (${res.status}): ${data?.error?.message || text || '未知错误'}`);
-    return data;
-  }
-
-  async function createConnectedAccount({ country, email, business_name, refresh_url, return_url }) {
-    // v2: merchant 配置 + dashboard:none，费用/损失由子账户承担，Jirvs 拿 0
-    const account = await apiFetchV2('/core/accounts', {
-      method: 'POST',
-      json: {
-        contact_email: String(email || ''),
-        display_name: String(business_name || email || 'Merchant').slice(0, 200),
-        identity: { country: String(country || 'HK').toUpperCase() },
-        configuration: { merchant: {} },
-        dashboard: 'none',
-        defaults: { responsibilities: { fees_collector: 'stripe', losses_collector: 'stripe' } },
-      },
-    });
-    const link = await createAccountLink(account.id, { refresh_url, return_url });
-    const st = await getConnectedAccount(account.id);
+    if (!res.ok) throw new Error(`Stripe OAuth 换 token 失败 (${res.status}): ${data?.error_description || data?.error || text || '未知错误'}`);
+    if (!data.stripe_user_id) throw new Error('Stripe OAuth 返回缺少 stripe_user_id');
     return {
-      account_id: account.id,
-      charges_enabled: isConnectReady(st),
-      payouts_enabled: false,
-      details_submitted: false,
-      onboarding_url: link.url,
+      account_id: data.stripe_user_id,
+      livemode: !!data.livemode,
       mode: secretKey.startsWith('sk_test_') ? 'test' : 'live',
     };
   }
 
-  function isConnectReady(acct) {
-    const mc = (acct.configuration || {}).merchant || {};
-    const reqs = acct.requirements;
-    const noReqs = !reqs || (Array.isArray(reqs) && !reqs.length) || (typeof reqs === 'object' && !Object.keys(reqs).length);
-    return !!mc.applied && noReqs;
-  }
-
-  async function createAccountLink(account_id, { refresh_url, return_url }) {
-    return apiFetchV2('/core/account_links', {
-      method: 'POST',
-      json: {
-        account: account_id,
-        use_case: { type: 'account_onboarding', account_onboarding: { refresh_url, return_url } },
-      },
-    });
-  }
-
-  async function getConnectedAccount(account_id) {
-    const acct = await apiFetchV2(`/core/accounts/${encodeURIComponent(account_id)}?include[0]=configuration.merchant`);
-    // 归一化为 v1 风格字段，方便上层判断
-    return { ...acct, charges_enabled: isConnectReady(acct), payouts_enabled: false, details_submitted: isConnectReady(acct) };
+  // 查 OAuth 连过来的账号状态（v1 接口 + 平台 Key 即可，无需 v2）。
+  async function getOAuthAccountStatus(account_id) {
+    const acct = await apiFetch(`/accounts/${encodeURIComponent(account_id)}`);
+    return {
+      id: acct.id,
+      charges_enabled: !!acct.charges_enabled,
+      payouts_enabled: !!acct.payouts_enabled,
+      details_submitted: !!acct.details_submitted,
+      requirements_currently_due: (acct.requirements && acct.requirements.currently_due) || [],
+    };
   }
 
   async function createPayment({ connected_account_id, order_id, merchant_id, amount, currency, description, success_url, cancel_url, customer_email }) {
@@ -223,10 +217,10 @@ function createAdapter() {
     gateway: 'stripe',
     isConfigured: () => !!secretKey,
     isSandbox: () => secretKey.startsWith('sk_test_'),
-    createConnectedAccount,
-    createAccountLink,
-    getConnectedAccount,
-    isConnectReady,
+    isOAuthConfigured: () => !!getOAuthClientId(),
+    getOAuthAuthorizeUrl,
+    exchangeOAuthCode,
+    getOAuthAccountStatus,
     createPayment,
     getPayment,
     cancelPayment,

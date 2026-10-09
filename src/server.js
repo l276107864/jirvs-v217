@@ -1280,59 +1280,66 @@ app.delete('/api/v1/merchants/:id/nowpayments', requireAuth, requireOwnMerchant,
   }
 });
 
-// v22：法币通道使用 Stripe Connect Express。
-// Stripe 负责商户身份验证、银行卡收款能力和结算；Jirvs 只保存 connected account ID 与状态。
-async function createStripeOnboarding(req, res) {
+// v21.7.2: Stripe Connect OAuth 一键授权（取代 v2 建子账号）。
+// 商户点"连接 Stripe"→ 跳 Stripe 官方授权页 → 登录/注册自己的账号 → 授权 → 回调回来。
+// Jirvs 不替商户建账号、不碰身份资料；回调里只保存 connected account ID 与状态。
+// 需要环境变量 STRIPE_CLIENT_ID（Stripe 后台 Connect 设置 → OAuth），
+// 并在 Stripe 后台把回调地址登记为 Redirect URI。
+const oauthStateStore = new Map(); // state -> { merchant_id, user_id, exp }
+
+function stripeOAuthRedirectUri(req) {
+  return String(process.env.STRIPE_OAUTH_REDIRECT_URL || '').trim()
+    || `${baseUrl(req)}/api/v1/oauth/stripe/callback`;
+}
+
+// 开始 OAuth：返回 Stripe 官方授权地址，前端直接跳转。
+async function startStripeOAuth(req, res) {
   try {
-    const merchant = platform.getMerchant(req.params.id);
-    const body = req.body || {};
-    const base = baseUrl(req);
-    const country = String(body.country || merchant.country || 'US').toUpperCase();
-    const refreshUrl = `${base}/api/v1/merchants/${req.params.id}/stripe/refresh`;
-    const returnUrl = process.env.STRIPE_CONNECT_RETURN_URL || `${base}/portal.html?stripe=connected&merchant_id=${encodeURIComponent(req.params.id)}`;
-    let info = merchant.stripe || {};
-    let account;
-    if (info.account_id) {
-      account = await stripe.getConnectedAccount(info.account_id);
-      const link = await stripe.createAccountLink(info.account_id, { refresh_url: refreshUrl, return_url: returnUrl });
-      info = {
-        ...info,
-        bound: true,
-        account_id: account.id,
-        charges_enabled: !!account.charges_enabled,
-        payouts_enabled: !!account.payouts_enabled,
-        details_submitted: !!account.details_submitted,
-        onboarding_url: link.url,
-        mode: stripe.isSandbox() ? 'test' : 'live',
-      };
-    } else {
-      info = await stripe.createConnectedAccount({
-        country,
-        email: merchant.email || req.user.email,
-        business_name: merchant.company_name || merchant.company || '',
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-      });
-      info.bound = true;
-    }
-    platform.setMerchantStripe(req.params.id, info);
-    platform.setChannelStatus(req.params.id, 'fiat', info.charges_enabled ? 'active' : 'pending');
-    res.json({
-      merchant_id: req.params.id,
-      channel: 'fiat',
-      status: info.charges_enabled ? 'active' : 'pending',
-      stripe: { bound: true, account_id: info.account_id, charges_enabled: !!info.charges_enabled, payouts_enabled: !!info.payouts_enabled, details_submitted: !!info.details_submitted, mode: info.mode, updated_at: info.updated_at || '' },
-      onboarding_url: info.onboarding_url,
-      note: info.charges_enabled ? 'Stripe 法币通道已开通' : '请在 Stripe 页面完成企业验证，完成后返回 Jirvs',
-    });
+    platform.getMerchant(req.params.id);
+    const redirect_uri = stripeOAuthRedirectUri(req);
+    const state = crypto.randomBytes(24).toString('hex');
+    oauthStateStore.set(state, { merchant_id: req.params.id, user_id: req.user.id, exp: Date.now() + 15 * 60 * 1000 });
+    const authorize_url = stripe.getOAuthAuthorizeUrl({ redirect_uri, state });
+    res.json({ merchant_id: req.params.id, authorize_url });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 }
-app.post('/api/v1/merchants/:id/stripe/connect', requireAuth, requireOwnMerchant, createStripeOnboarding);
+app.post('/api/v1/merchants/:id/stripe/connect', requireAuth, requireOwnMerchant, startStripeOAuth);
 
-// Stripe 的 refresh_url：用户中断或链接过期后重新生成一次性授权链接。
-app.get('/api/v1/merchants/:id/stripe/refresh', requireAuth, requireOwnMerchant, createStripeOnboarding);
+// 中断后重新授权：同一入口。
+app.get('/api/v1/merchants/:id/stripe/refresh', requireAuth, requireOwnMerchant, startStripeOAuth);
+
+// Stripe OAuth 回调（公开接口，靠 state 校验归属；state 15 分钟有效，一次性）。
+app.get('/api/v1/oauth/stripe/callback', async (req, res) => {
+  const base = baseUrl(req);
+  const fail = (msg) => res.redirect(`${base}/portal.html?stripe=error&msg=${encodeURIComponent(msg)}`);
+  try {
+    const { code, state, error, error_description } = req.query || {};
+    if (error) return fail(`Stripe 授权被拒绝: ${error_description || error}`);
+    const rec = oauthStateStore.get(String(state || ''));
+    if (!rec || Date.now() > rec.exp) return fail('授权已过期，请回门户重新点"连接 Stripe"');
+    oauthStateStore.delete(String(state));
+    const redirect_uri = stripeOAuthRedirectUri(req);
+    const token = await stripe.exchangeOAuthCode({ code: String(code || ''), redirect_uri });
+    const status = await stripe.getOAuthAccountStatus(token.account_id);
+    platform.setMerchantStripe(rec.merchant_id, {
+      bound: true,
+      via: 'oauth',
+      account_id: token.account_id,
+      charges_enabled: status.charges_enabled,
+      payouts_enabled: status.payouts_enabled,
+      details_submitted: status.details_submitted,
+      requirements_currently_due: status.requirements_currently_due,
+      mode: token.mode,
+      updated_at: new Date().toISOString(),
+    });
+    platform.setChannelStatus(rec.merchant_id, 'fiat', status.charges_enabled ? 'active' : 'pending');
+    res.redirect(`${base}/portal.html?stripe=connected&merchant_id=${encodeURIComponent(rec.merchant_id)}`);
+  } catch (err) {
+    fail(err.message);
+  }
+});
 
 // 返回 Stripe 账户最新能力状态；Stripe 审核完成后刷新即可变为 active。
 app.get('/api/v1/merchants/:id/stripe', requireAuth, requireOwnMerchant, async (req, res) => {
@@ -1340,14 +1347,14 @@ app.get('/api/v1/merchants/:id/stripe', requireAuth, requireOwnMerchant, async (
     const merchant = platform.getMerchant(req.params.id);
     const info = merchant.stripe || {};
     if (!info.account_id) return res.json({ merchant_id: req.params.id, stripe: { bound: false, charges_enabled: false, payouts_enabled: false }, status: 'draft' });
-    const account = await stripe.getConnectedAccount(info.account_id);
+    const account = await stripe.getOAuthAccountStatus(info.account_id);
     const next = platform.setMerchantStripe(req.params.id, {
       ...info,
       bound: true,
       charges_enabled: !!account.charges_enabled,
       payouts_enabled: !!account.payouts_enabled,
       details_submitted: !!account.details_submitted,
-      requirements_currently_due: account.requirements?.currently_due || [],
+      requirements_currently_due: account.requirements_currently_due || [],
     });
     platform.setChannelStatus(req.params.id, 'fiat', account.charges_enabled ? 'active' : 'pending');
     res.json({ merchant_id: req.params.id, stripe: { bound: true, account_id: next.account_id, charges_enabled: !!next.charges_enabled, payouts_enabled: !!next.payouts_enabled, details_submitted: !!next.details_submitted, requirements_currently_due: next.requirements_currently_due || [], mode: next.mode || (stripe.isSandbox() ? 'test' : 'live'), updated_at: next.updated_at || '' }, status: account.charges_enabled ? 'active' : 'pending' });
