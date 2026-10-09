@@ -280,6 +280,7 @@ function createAdapter() {
       payment_id: obj.id || obj.payment_intent || '',
       order_id: obj.metadata?.order_id || obj.client_reference_id || '',
       merchant_id: obj.metadata?.merchant_id || '',
+      metadata: obj.metadata || {}, // v8: 订阅支付靠 metadata.subscription_id 识别
       amount: obj.amount_total != null ? obj.amount_total / 100 : (obj.amount_received != null ? obj.amount_received / 100 : null),
       currency: String(obj.currency || '').toLowerCase(),
       status: succeeded ? 'succeeded' : failed ? (type.includes('expired') ? 'canceled' : 'failed') : 'processing',

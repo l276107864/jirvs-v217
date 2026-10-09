@@ -174,6 +174,27 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
     const event = stripe.parseWebhook(req.body.toString(), req.headers['stripe-signature']);
     if (event.event_id && processedIpn.has(`stripe:${event.event_id}`)) return res.json({ received: true, deduped: true });
     if (event.event_id) processedIpn.add(`stripe:${event.event_id}`);
+    // v8: 终身订阅支付（Checkout 建单时 metadata 带 subscription_id）——直接激活订阅，不走订单逻辑
+    if (event.metadata && event.metadata.subscription_id) {
+      if (event.raw_type === 'checkout.session.completed') {
+        const result = eco.activateSubscription(platform.db, {
+          subscriptionId: event.metadata.subscription_id,
+          paymentId: event.payment_id,
+          amount: event.amount,
+          currency: (event.currency || 'USD').toUpperCase(),
+          eventId: event.event_id ? `stripe:${event.event_id}` : undefined,
+        });
+        return res.json({ received: true, kind: 'subscription', ...result });
+      }
+      if (event.raw_type === 'checkout.session.expired') {
+        try {
+          platform.db.prepare(`UPDATE subscriptions SET status = 'expired' WHERE id = ? AND status = 'pending'`)
+            .run(event.metadata.subscription_id);
+        } catch {}
+        return res.json({ received: true, kind: 'subscription_expired' });
+      }
+      return res.json({ received: true, kind: 'subscription_ignored', event: event.raw_type });
+    }
     const order = event.order_id ? platform.getOrder(event.order_id) : platform.findOrderByPayment(event.payment_id);
     if (order) {
       const status = event.status === 'succeeded' ? 'succeeded' : event.status === 'canceled' ? 'canceled' : event.status === 'failed' ? 'failed' : 'pending';
@@ -1497,6 +1518,36 @@ app.get('/api/v1/subscriptions/quote', requireAuth, (req, res) => {
   res.json({ plan: 'lifetime', currency: 'USD', amount: partner ? 199 : 299, referral_code: partner ? partner.ref_code : null });
 });
 
+// v8: 创建终身订阅 Stripe Checkout（checkout 与 retry 共用）
+async function createSubscriptionCheckout(db, mid, req) {
+  const sdk = stripeSdk();
+  if (!sdk) throw new Error('订阅支付暂未开通（Stripe 未配置）');
+  const now = eco.nowBJ();
+  const id = eco.uid('sub');
+  // v21.7：终身订阅，无到期
+  const partner = latestReferral(req);
+  const amount = partner ? 199 : 299;
+  if (partner) {
+    // 最新一次有效推荐码覆盖此前推荐关系；不在注册时锁定归因。
+    db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?").run(partner.id, mid);
+  } else {
+    db.prepare("UPDATE merchants SET partner_id = '', referred_at = '' WHERE merchant_id = ?").run(mid);
+  }
+  db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, referral_code, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?, ?)` ).run(id, mid, amount, partner ? partner.ref_code : '', now);
+  // v21.7: Stripe Checkout（一次付清；卡 / 微信支付 / 支付宝，需在 Stripe 后台启用）
+  const session = await sdk.checkout.sessions.create({
+    mode: 'payment',
+    payment_method_types: ['card', 'wechat_pay', 'alipay'],
+    line_items: [{ price_data: { currency: 'usd', unit_amount: Math.round(amount * 100), product_data: { name: 'Jirvs 终身订阅' } }, quantity: 1 }],
+    success_url: `${baseUrl(req)}/portal.html?sub=success`,
+    cancel_url: `${baseUrl(req)}/portal.html?sub=cancel`,
+    client_reference_id: id,
+    metadata: { subscription_id: id, merchant_id: mid },
+  });
+  try { db.prepare('UPDATE subscriptions SET stripe_session_id = ? WHERE id = ?').run(session.id, id); } catch {}
+  return { ok: true, id, plan: 'lifetime', amount, referral_code: partner ? partner.ref_code : null, status: 'pending', checkout_url: session.url, message: '请完成 Stripe 订阅付款；支付成功回调确认后才会开通并计佣。' };
+}
+
 app.post('/api/v1/subscriptions/checkout', requireAuth, async (req, res) => {
   try {
     const db = platform.db;
@@ -1507,32 +1558,27 @@ app.post('/api/v1/subscriptions/checkout', requireAuth, async (req, res) => {
       `SELECT id, status FROM subscriptions WHERE merchant_id = ? AND status IN ('active', 'pending') LIMIT 1`
     ).get(mid);
     if (exist) return res.status(400).json({ error: '已订阅，无需重复购买' });
-    const sdk = stripeSdk();
-    if (!sdk) return res.status(503).json({ error: '订阅支付暂未开通（Stripe 未配置）' });
-    const now = eco.nowBJ();
-    const id = eco.uid('sub');
-    // v21.7：终身订阅，无到期
-    const partner = latestReferral(req);
-    const amount = partner ? 199 : 299;
-    if (partner) {
-      // 最新一次有效推荐码覆盖此前推荐关系；不在注册时锁定归因。
-      db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?").run(partner.id, mid);
-    } else {
-      db.prepare("UPDATE merchants SET partner_id = '', referred_at = '' WHERE merchant_id = ?").run(mid);
-    }
-    db.prepare(`INSERT INTO subscriptions (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, referral_code, created_at) VALUES (?, ?, 'lifetime', ?, 'USD', 'pending', '', '', ?, ?)` ).run(id, mid, amount, partner ? partner.ref_code : '', now);
-    // v21.7: Stripe Checkout（一次付清；卡 / 微信支付 / 支付宝，需在 Stripe 后台启用）
-    const session = await sdk.checkout.sessions.create({
-      mode: 'payment',
-      payment_method_types: ['card', 'wechat_pay', 'alipay'],
-      line_items: [{ price_data: { currency: 'usd', unit_amount: Math.round(amount * 100), product_data: { name: 'Jirvs 终身订阅' } }, quantity: 1 }],
-      success_url: `${baseUrl(req)}/portal.html?sub=success`,
-      cancel_url: `${baseUrl(req)}/portal.html?sub=cancel`,
-      client_reference_id: id,
-      metadata: { subscription_id: id, merchant_id: mid },
-    });
-    try { db.prepare('UPDATE subscriptions SET stripe_session_id = ? WHERE id = ?').run(session.id, id); } catch {}
-    res.status(202).json({ ok: true, id, plan: 'lifetime', amount, referral_code: partner ? partner.ref_code : null, status: 'pending', checkout_url: session.url, message: '请完成 Stripe 订阅付款；支付成功回调确认后才会开通并计佣。' });
+    const result = await createSubscriptionCheckout(db, mid, req);
+    res.status(202).json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// v8: 重新发起订阅支付——作废卡住的 pending 单，建新的 Checkout
+app.post('/api/v1/subscriptions/retry', requireAuth, async (req, res) => {
+  try {
+    const db = platform.db;
+    const merchants = platform.listMerchants(req.user.id);
+    if (!merchants.length) return res.status(400).json({ error: '请先注册商户主体' });
+    const mid = merchants[0].merchant_id;
+    const pend = db.prepare(
+      `SELECT id FROM subscriptions WHERE merchant_id = ? AND status = 'pending' ORDER BY created_at DESC LIMIT 1`
+    ).get(mid);
+    if (!pend) return res.status(400).json({ error: '没有待支付的订阅订单' });
+    db.prepare(`UPDATE subscriptions SET status = 'canceled' WHERE id = ? AND status = 'pending'`).run(pend.id);
+    const result = await createSubscriptionCheckout(db, mid, req);
+    res.status(202).json({ ...result, retried: true, canceled_id: pend.id });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

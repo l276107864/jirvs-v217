@@ -444,6 +444,7 @@
       <div class="plan on"><span class="tag">终身</span><span class="p">$299</span> <span class="u">终身</span><div class="u" style="margin-top:6px">填推荐码立省 $100</div></div>
     </div>
     <div class="mrow"><button class="primary" id="subBuyBtn" onclick="buySub()">创建订阅订单</button></div>
+    <div class="mrow" id="subRetryRow"><button class="ghost" id="subRetryBtn" onclick="retrySub()" style="display:none">重新发起支付</button></div>
     <div class="disclaimer">订阅说明：
 本服务为数字化 SaaS 许可，一次付费、终身使用，购买后不支持退款。</div>
     <div class="mrow"><button class="ghost" style="flex:1" onclick="closeModal('subMask')">取消</button></div>
@@ -1055,11 +1056,13 @@ let pick = 'month';
 function openSub() {
   const linkRef = new URLSearchParams(location.search).get('ref') || new URLSearchParams(location.search).get('ref_code') || '';
   if (linkRef && !$('subRefCode').value) $('subRefCode').value = linkRef.toUpperCase();
+  const isPending = acct.sub.st === 'pending'; // v8: 之前误写 acct.sub.pending（该属性不存在），pending 态永远显示错
   $('subStatus').innerHTML = acct.sub.st === 'active'
     ? '当前订阅：<b>终身</b> · 永久有效'
-    : (acct.sub.pending ? '订阅订单已创建，等待支付机构确认。确认前不会激活订阅或计佣。' : '填写最新推荐码后创建订单；支付成功并收到机构回调才会激活订阅。');
-  $('subBuyBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : (acct.sub.pending ? '等待支付确认' : '创建订阅订单');
-  $('subBuyBtn').disabled = acct.sub.st === 'active' || acct.sub.pending;
+    : (isPending ? '订阅订单已创建，等待支付机构确认。确认前不会激活订阅或计佣。<br>若支付页已关闭或过期，可点下方「重新发起支付」。' : '填写最新推荐码后创建订单；支付成功并收到机构回调才会激活订阅。');
+  $('subBuyBtn').textContent = acct.sub.st === 'active' ? '已订阅（终身）' : (isPending ? '等待支付确认' : '创建订阅订单');
+  $('subBuyBtn').disabled = acct.sub.st === 'active' || isPending;
+  $('subRetryBtn').style.display = isPending ? '' : 'none';
   $('subMask').classList.add('open');
 }
 async function buySub() {
@@ -1089,6 +1092,23 @@ async function buySub() {
     else toast(result.status === 'pending' ? '订阅订单已创建，支付确认后自动开通' : '订阅状态已更新');
   } catch(err) {
     btn.disabled = false; btn.textContent = '创建订阅订单';
+    alert(err.message);
+  }
+}
+
+// v8: 重新发起订阅支付——作废卡住的 pending 单，建新的 Stripe 支付单
+async function retrySub() {
+  const btn = $('subRetryBtn');
+  btn.disabled = true; btn.textContent = '处理中…';
+  try {
+    const refCode = $('subRefCode').value.trim();
+    const result = await apiPost('/api/v1/subscriptions/retry', refCode ? { ref_code: refCode } : {});
+    if (result.checkout_url) { location.href = result.checkout_url; return; }
+    toast('已重新创建订阅订单');
+    closeModal('subMask');
+    await loadAllData(); renderHeader();
+  } catch(err) {
+    btn.disabled = false; btn.textContent = '重新发起支付';
     alert(err.message);
   }
 }
