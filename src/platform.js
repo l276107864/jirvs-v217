@@ -462,7 +462,7 @@ function createPlatform() {
   function nextStepsFor(channels) {
     const steps = ['把 api_key 填进插件或网站后台，即可调用 Jirvs 统一 API（商户零部署）'];
     if (channels.includes('fiat')) {
-      steps.push('法币通道：在商户门户直连你的 Antom 账户（大陆/香港主体均可；Antom 嵌入式开户待确认，联调完成后另行通知）');
+      steps.push('法币通道：在商户门户通过 Stripe Connect 完成企业验证，Stripe 负责 KYC/KYB 与结算');
     }
     if (channels.includes('stablecoin')) {
       steps.push('稳定币通道：去 NOWPayments 官网注册（邮箱即可）→ 添加收款钱包 → 生成 API Key + IPN Secret → 回商户门户绑定；提币在 NOWPayments，Jirvs 只做技术集成');
@@ -491,6 +491,7 @@ function createPlatform() {
       },
       payoneer: rest.payoneer ? JSON.parse(rest.payoneer) : null,
       antom: rest.antom ? JSON.parse(rest.antom) : null,
+      stripe: rest.stripe ? JSON.parse(rest.stripe) : { bound: false, charges_enabled: false, payouts_enabled: false },
       nowpayments: rest.nowpayments ? publicNowPayments(JSON.parse(rest.nowpayments)) : { bound: false, charges_enabled: false },
     };
   }
@@ -574,7 +575,21 @@ function createPlatform() {
     return next;
   }
 
-  // 银行卡（Payoneer 沙盒，待 Antom 替换）
+  // 法币通道：Stripe Connect Express 账户状态（不保存 Stripe Secret Key）
+  function setMerchantStripe(merchant_id, info) {
+    const cur = getMerchantJson(merchant_id, 'stripe') || {};
+    const next = { ...cur, ...(info || {}), updated_at: now() };
+    setMerchantJson(merchant_id, 'stripe', next);
+    return next;
+  }
+  function updateMerchantStripe(merchant_id, patch) {
+    const cur = getMerchantJson(merchant_id, 'stripe') || {};
+    const next = { ...cur, ...(patch || {}), updated_at: now() };
+    setMerchantJson(merchant_id, 'stripe', next);
+    return next;
+  }
+
+  // 兼容旧数据：历史 Payoneer 字段保留，但新法币流程统一使用 Stripe。
   function setMerchantPayoneer(merchant_id, payoneerInfo) {
     const next = { ...(payoneerInfo || {}), updated_at: now() };
     setMerchantJson(merchant_id, 'payoneer', next);
@@ -709,7 +724,7 @@ function createPlatform() {
       settled_volume: sumByCcy(done),
       pending_volume: sumByCcy(pending),
       refunded_volume: refundByCcy,
-      note: 'Jirvs 不经手资金；真实模式此处展示 Antom / NOWPayments 只读余额与打款记录（NOWPayments 余额只读接口已接，Antom 待联调）。',
+      note: 'Jirvs 不经手资金；真实模式此处展示 Stripe / NOWPayments 只读余额与打款记录。',
     };
   }
 
@@ -829,7 +844,7 @@ function createPlatform() {
     createMerchant, createMerchantDraft, deleteMerchant, addChannel, updateMerchantProfile, getMerchant, getMerchantInternal, verifyApiKey, listMerchants, assertOwnMerchant, rotateMerchantKey,
     freezeMerchant, unfreezeMerchant, isMerchantFrozen, isUserFrozen,
     setMerchantNowPayments, updateMerchantNowPayments, getMerchantNowPaymentsSecrets,
-    setMerchantAntom, setMerchantPayoneer, updateMerchantPayoneer, findMerchantByPayoneerAccount,
+    setMerchantAntom, setMerchantStripe, updateMerchantStripe, setMerchantPayoneer, updateMerchantPayoneer, findMerchantByPayoneerAccount,
     getChannelState, saveChannelDraft, setChannelStatus, channelIsActive,
     railDisplayName, recordOrder, updateOrder, getOrder, listOrders, findOrderByPayment,
     recordRefund, fundsOverview,

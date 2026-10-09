@@ -11,17 +11,16 @@
 - [x] 不在注册时锁定推荐关系；订阅报价/下单时以最新有效推荐码为准。
 - [x] 订阅金额规则为无推荐码 USD 299、有效推荐码 USD 199。
 - [x] 订阅下单先记录 `pending`，不再把未确认支付伪装成 `active`。
-- [x] 数据库迁移可为旧库增加推荐归因、公开 Key 和 Airwallex 字段。
+- [x] 数据库迁移可为旧库增加推荐归因、公开 Key 和 Stripe Connect 字段。
 - [x] 订阅回调已实现：HMAC-SHA256、金额/币种校验、幂等、激活和一次性计佣。
 - [x] 无端口核心回归测试已通过：`ALL PASS (15)`。
 
 ## 必须由支付机构/运营方完成
 
-- [ ] Antom 测试商户、Client ID/Secret、签名算法和 Webhook 样例已取得。
-- [ ] Airwallex 测试账户、Client ID/Secret、支付/退款 API 权限和 Webhook 样例已取得。
+- [ ] Stripe 测试平台已配置 Secret Key、Connect、Webhook Signing Secret 和事件样例。
 - [ ] 至少完成一笔支付成功、失败、取消、退款、重复 Webhook、乱序 Webhook 验收。
 - [ ] 明确法币结算币种、地区、KYC/KYB、退款责任和争议处理规则。
-- [ ] Antom/Airwallex 真实 Webhook 事件需转换为 `/webhooks/subscriptions/:provider` 格式，并在沙盒完成验收。
+- [ ] Stripe `checkout.session.completed`、失败、过期、重复 Webhook 已在测试环境验收。
 - [ ] 生产 HTTPS、公网 Webhook、密钥托管、轮换和告警已配置。
 - [ ] 生产数据库备份、恢复演练、迁移回滚和数据保留周期已验收。
 - [ ] WordPress/WooCommerce 插件在真实站点完成安装、下单、回调、退款和重试测试。
@@ -29,7 +28,7 @@
 
 ## 当前不能宣称的内容
 
-- 不能宣称 Antom 或 Airwallex 已经完成真实支付联调。
+- 不能宣称 Stripe 已经完成真实支付联调，除非已完成 Connect、Checkout 和 Webhook 验收。
 - 不能宣称本地 `SANDBOX_MODE` 是生产支付。
 - 不能把 `pending` 订阅、通道或订单当作已收款。
-- 不能在没有真实机构凭证和签名样例时实现或猜测机构 API。
+- 没有真实 Stripe 平台密钥和 Webhook Signing Secret 时，不得宣称已接通真实支付。
