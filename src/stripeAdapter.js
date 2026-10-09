@@ -43,6 +43,20 @@ function createAdapter() {
   const secretKey = String(process.env.STRIPE_SECRET_KEY || '').trim();
   const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || '').trim();
 
+  // v21.7.3: Stripe 请求统一 15 秒超时（token 换取不重试：授权码一次性，重试会烧掉 code）。
+  async function fetchWithTimeout(url, opts = {}, ms = 15000) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms);
+    try {
+      return await fetch(url, { ...opts, signal: ctrl.signal });
+    } catch (e) {
+      if (e && e.name === 'AbortError') throw new Error(`Stripe 请求超时（${ms}ms）`);
+      throw e;
+    } finally {
+      clearTimeout(t);
+    }
+  }
+
   async function apiFetch(path, { method = 'GET', params = {}, account } = {}) {
     const body = method === 'GET' ? undefined : formEncode(params).join('&');
     const url = method === 'GET' && Object.keys(params).length
@@ -55,12 +69,41 @@ function createAdapter() {
       ...(body ? { 'Content-Type': 'application/x-www-form-urlencoded' } : {}),
       ...(account ? { 'Stripe-Account': account } : {}),
     };
-    const res = await fetch(url, { method, headers, body });
+    const res = await fetchWithTimeout(url, { method, headers, body });
     const text = await res.text();
     let data;
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!res.ok) throw new Error(`Stripe API 调用失败 (${res.status}): ${data?.error?.message || text || '未知错误'}`);
     return data;
+  }
+
+  // v21.7.3: OAuth state 无状态 HMAC 签名（替代进程内 Map）。
+  // 多实例/负载均衡/进程重启下依然可验；"一次性"由服务端已消费集合保证（见 server.js）。
+  const OAUTH_STATE_TTL = 15 * 60 * 1000;
+  function oauthStateSecret() {
+    return String(process.env.OAUTH_STATE_SECRET || secretKey || '').trim();
+  }
+  function signOAuthState(merchant_id, user_id) {
+    if (!oauthStateSecret()) throw new Error('未配置 OAuth state 签名密钥');
+    const payload = Buffer.from(JSON.stringify({ m: String(merchant_id), u: String(user_id), t: Date.now() })).toString('base64url');
+    const sig = crypto.createHmac('sha256', oauthStateSecret()).update(payload).digest('hex');
+    return `${payload}.${sig}`;
+  }
+  function verifyOAuthState(state) {
+    try {
+      const s = String(state || '');
+      const i = s.lastIndexOf('.');
+      if (i < 0 || !oauthStateSecret()) return null;
+      const payload = s.slice(0, i);
+      const sig = s.slice(i + 1);
+      const expect = crypto.createHmac('sha256', oauthStateSecret()).update(payload).digest('hex');
+      if (sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+      const o = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+      if (!o || !o.m || !o.u || !o.t || Date.now() - Number(o.t) > OAUTH_STATE_TTL) return null;
+      return { merchant_id: o.m, user_id: o.u };
+    } catch {
+      return null;
+    }
   }
 
   // v21.7.2: Stripe Connect OAuth 一键授权（取代 v2 建子账号）。
@@ -89,17 +132,19 @@ function createAdapter() {
   }
 
   // 用授权码换 connected account ID（stripe_user_id）。
+  // 校验：code 必填；scope 必须含 read_write；livemode 必须与平台 Key 模式一致。
   async function exchangeOAuthCode({ code, redirect_uri }) {
     const clientId = getOAuthClientId();
     if (!clientId) throw new Error('Stripe 未配置 STRIPE_CLIENT_ID');
     if (!secretKey) throw new Error('Stripe 未配置 STRIPE_SECRET_KEY');
+    if (!String(code || '').trim()) throw new Error('缺少 Stripe 授权码');
     const body = new URLSearchParams({
       client_secret: secretKey,
       code: String(code || ''),
       grant_type: 'authorization_code',
     });
     if (redirect_uri) body.set('redirect_uri', String(redirect_uri));
-    const res = await fetch(OAUTH_TOKEN_URL, {
+    const res = await fetchWithTimeout(OAUTH_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
       body: body.toString(),
@@ -109,11 +154,40 @@ function createAdapter() {
     try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
     if (!res.ok) throw new Error(`Stripe OAuth 换 token 失败 (${res.status}): ${data?.error_description || data?.error || text || '未知错误'}`);
     if (!data.stripe_user_id) throw new Error('Stripe OAuth 返回缺少 stripe_user_id');
+    const scope = String(data.scope || '');
+    if (!scope.split(/[,\s]+/).includes('read_write')) throw new Error('Stripe 授权范围不足（需要 read_write）');
+    if (data.livemode !== undefined && !!data.livemode !== !secretKey.startsWith('sk_test_')) {
+      throw new Error('Stripe 账号模式与平台不一致（测试/正式混用）');
+    }
     return {
       account_id: data.stripe_user_id,
       livemode: !!data.livemode,
+      scope,
       mode: secretKey.startsWith('sk_test_') ? 'test' : 'live',
     };
+  }
+
+  // 撤销 OAuth 授权（Stripe 端解绑）。尽力而为：失败只记日志，不阻断本地解绑。
+  async function deauthorizeOAuthAccount(account_id) {
+    const clientId = getOAuthClientId();
+    if (!clientId || !secretKey || !account_id) return false;
+    const body = new URLSearchParams({ client_id: clientId, stripe_user_id: String(account_id) });
+    try {
+      const res = await fetchWithTimeout('https://connect.stripe.com/oauth/deauthorize', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${secretKey}`, 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+        body: body.toString(),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        console.error(`[stripe] deauthorize 失败 (${res.status}): ${text.slice(0, 200)}`);
+        return false;
+      }
+      return true;
+    } catch (e) {
+      console.error('[stripe] deauthorize 异常:', e.message);
+      return false;
+    }
   }
 
   // 查 OAuth 连过来的账号状态（v1 接口 + 平台 Key 即可，无需 v2）。
@@ -218,9 +292,13 @@ function createAdapter() {
     isConfigured: () => !!secretKey,
     isSandbox: () => secretKey.startsWith('sk_test_'),
     isOAuthConfigured: () => !!getOAuthClientId(),
+    getOAuthClientId,
     getOAuthAuthorizeUrl,
     exchangeOAuthCode,
+    deauthorizeOAuthAccount,
     getOAuthAccountStatus,
+    signOAuthState,
+    verifyOAuthState,
     createPayment,
     getPayment,
     cancelPayment,

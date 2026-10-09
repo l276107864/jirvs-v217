@@ -117,8 +117,6 @@ platform.ensureSeedAdmin();
 // 支付/会话 id -> 通道
 const paymentGateway = new Map(); // payment_id -> 'stripe' | 'nowpayments'
 const sessionGateway = new Map(); // session_id -> 'stripe' | 'nowpayments'
-// Stripe OAuth 只用于把已有 Standard 账号连接到平台；换回 acct_xxx 后不保存 access_token。
-const stripeOAuthStates = new Map();
 
 // IPN 幂等：payment_id:payment_status 已处理过的直接回 200 不重复记账
 const processedIpn = new Set();
@@ -1282,25 +1280,50 @@ app.delete('/api/v1/merchants/:id/nowpayments', requireAuth, requireOwnMerchant,
   }
 });
 
-// v21.7.2: Stripe Connect OAuth 一键授权（取代 v2 建子账号）。
+// v21.7.3: Stripe Connect OAuth 一键授权（取代 v2 建子账号）。
 // 商户点"连接 Stripe"→ 跳 Stripe 官方授权页 → 登录/注册自己的账号 → 授权 → 回调回来。
 // Jirvs 不替商户建账号、不碰身份资料；回调里只保存 connected account ID 与状态。
 // 需要环境变量 STRIPE_CLIENT_ID（Stripe 后台 Connect 设置 → OAuth），
 // 并在 Stripe 后台把回调地址登记为 Redirect URI。
-const oauthStateStore = new Map(); // state -> { merchant_id, user_id, exp }
+//
+// 安全说明（对应安全 review）：
+// - state 为 HMAC 无状态签名（含商户/用户/时间戳），不依赖进程内 Map，
+//   多实例/负载均衡/进程重启下依然可验；"一次性"由 oauthUsedStates 保证。
+// - 回调地址强制走 STRIPE_OAUTH_REDIRECT_URL 环境变量，不从请求 Host 拼，
+//   杜绝 Host 头投毒；失败跳转用相对路径，不拼 Host。
+// - 回调里只做授权码换取 + 换 token，不重试（授权码一次性，重试会烧掉）。
+// - 授权失败只给用户通用文案，Stripe 原文只记服务端日志。
 
-function stripeOAuthRedirectUri(req) {
-  return String(process.env.STRIPE_OAUTH_REDIRECT_URL || '').trim()
-    || `${baseUrl(req)}/api/v1/oauth/stripe/callback`;
+// /stripe/connect 限流：同一商户 30 秒一次（内存，单实例）。
+const oauthStartGap = new Map();
+// 已消费 state 防重放：sig -> 过期时间（内存，单实例；定期清理）。
+const oauthUsedStates = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, exp] of oauthUsedStates) if (exp < now) oauthUsedStates.delete(k);
+  for (const [k, ts] of oauthStartGap) if (now - ts > 5 * 60 * 1000) oauthStartGap.delete(k);
+}, 60 * 1000).unref();
+
+function stripeOAuthRedirectUri() {
+  const u = String(process.env.STRIPE_OAUTH_REDIRECT_URL || '').trim();
+  if (!u) throw new Error('未配置 STRIPE_OAUTH_REDIRECT_URL（Railway 变量里配置，并去 Stripe 后台登记为 Redirect URI）');
+  if (!/^https:\/\//i.test(u) && !/^http:\/\/localhost(:\d+)?\//i.test(u)) {
+    throw new Error('STRIPE_OAUTH_REDIRECT_URL 必须以 https:// 开头（本地调试可用 http://localhost）');
+  }
+  return u;
 }
 
 // 开始 OAuth：返回 Stripe 官方授权地址，前端直接跳转。
 async function startStripeOAuth(req, res) {
   try {
     platform.getMerchant(req.params.id);
-    const redirect_uri = stripeOAuthRedirectUri(req);
-    const state = crypto.randomBytes(24).toString('hex');
-    oauthStateStore.set(state, { merchant_id: req.params.id, user_id: req.user.id, exp: Date.now() + 15 * 60 * 1000 });
+    const now = Date.now();
+    if (now - (oauthStartGap.get(req.params.id) || 0) < 30 * 1000) {
+      return res.status(429).json({ error: '操作太频繁，请 30 秒后再试' });
+    }
+    oauthStartGap.set(req.params.id, now);
+    const redirect_uri = stripeOAuthRedirectUri();
+    const state = stripe.signOAuthState(req.params.id, req.user.id);
     const authorize_url = stripe.getOAuthAuthorizeUrl({ redirect_uri, state });
     res.json({ merchant_id: req.params.id, authorize_url });
   } catch (err) {
@@ -1309,21 +1332,31 @@ async function startStripeOAuth(req, res) {
 }
 app.post('/api/v1/merchants/:id/stripe/connect', requireAuth, requireOwnMerchant, startStripeOAuth);
 
-// 中断后重新授权：同一入口。
-app.get('/api/v1/merchants/:id/stripe/refresh', requireAuth, requireOwnMerchant, startStripeOAuth);
+// 中断后重新授权：同一入口（POST，避免 GET 产生 state 的 CSRF 面）。
+app.post('/api/v1/merchants/:id/stripe/refresh', requireAuth, requireOwnMerchant, startStripeOAuth);
 
 // Stripe OAuth 回调（公开接口，靠 state 校验归属；state 15 分钟有效，一次性）。
 app.get('/api/v1/oauth/stripe/callback', async (req, res) => {
-  const base = baseUrl(req);
-  const fail = (msg) => res.redirect(`${base}/portal.html?stripe=error&msg=${encodeURIComponent(msg)}`);
+  const fail = (msg) => res.redirect(`/portal.html?stripe=error&msg=${encodeURIComponent(msg)}`);
   try {
     const { code, state, error, error_description } = req.query || {};
-    if (error) return fail(`Stripe 授权被拒绝: ${error_description || error}`);
-    const rec = oauthStateStore.get(String(state || ''));
-    if (!rec || Date.now() > rec.exp) return fail('授权已过期，请回门户重新点"连接 Stripe"');
-    oauthStateStore.delete(String(state));
-    const redirect_uri = stripeOAuthRedirectUri(req);
-    const token = await stripe.exchangeOAuthCode({ code: String(code || ''), redirect_uri });
+    if (error) {
+      console.error('[stripe oauth] 授权被拒绝:', error, error_description || '');
+      return fail('Stripe 授权被拒绝，请回门户重试');
+    }
+    const rec = stripe.verifyOAuthState(state);
+    if (!rec) return fail('授权已过期或无效，请回门户重新点"连接 Stripe"');
+    const sig = String(state).split('.').pop();
+    if (oauthUsedStates.has(sig)) return fail('该授权已使用过，请重新发起授权');
+    oauthUsedStates.set(sig, Date.now() + 15 * 60 * 1000);
+    if (!String(code || '').trim()) return fail('缺少授权码，请重新授权');
+    const redirect_uri = stripeOAuthRedirectUri();
+    const token = await stripe.exchangeOAuthCode({ code: String(code), redirect_uri });
+    const dup = platform.findMerchantByStripeAccount(token.account_id);
+    if (dup && dup !== rec.merchant_id) {
+      console.error('[stripe oauth] 重复绑定:', token.account_id, '已属于商户', dup);
+      return fail('该 Stripe 账号已绑定到另一个商户');
+    }
     const status = await stripe.getOAuthAccountStatus(token.account_id);
     platform.setMerchantStripe(rec.merchant_id, {
       bound: true,
@@ -1337,74 +1370,31 @@ app.get('/api/v1/oauth/stripe/callback', async (req, res) => {
       updated_at: new Date().toISOString(),
     });
     platform.setChannelStatus(rec.merchant_id, 'fiat', status.charges_enabled ? 'active' : 'pending');
-    res.redirect(`${base}/portal.html?stripe=connected&merchant_id=${encodeURIComponent(rec.merchant_id)}`);
+    res.redirect(`/portal.html?stripe=connected&merchant_id=${encodeURIComponent(rec.merchant_id)}`);
   } catch (err) {
-    fail(err.message);
+    console.error('[stripe oauth] 回调失败:', err.message);
+    fail('Stripe 授权处理失败，请回门户重试');
   }
 });
 
-// 已有 Stripe 账号：OAuth 授权入口。授权完成后只保存 stripe_user_id（acct_xxx）。
-app.get('/api/v1/merchants/:id/stripe/oauth/start', requireAuth, requireOwnMerchant, (req, res) => {
+// 解绑 Stripe：删除本地绑定，并尽力在 Stripe 端撤销 OAuth 授权。
+app.delete('/api/v1/merchants/:id/stripe', requireAuth, requireOwnMerchant, async (req, res) => {
   try {
-    const clientId = String(process.env.STRIPE_CONNECT_OAUTH_CLIENT_ID || '').trim();
-    if (!clientId) return res.status(503).json({ error: '未配置 STRIPE_CONNECT_OAUTH_CLIENT_ID，暂时无法连接已有 Stripe 账号' });
-    const state = crypto.randomBytes(24).toString('hex');
-    const redirectUri = process.env.STRIPE_CONNECT_OAUTH_REDIRECT_URI || `${baseUrl(req)}/api/v1/stripe/oauth/callback`;
-    stripeOAuthStates.set(state, { merchant_id: req.params.id, user_id: req.user.id, redirect_uri: redirectUri, expires_at: Date.now() + 10 * 60 * 1000 });
-    const u = new URL('https://connect.stripe.com/oauth/authorize');
-    u.searchParams.set('response_type', 'code');
-    u.searchParams.set('client_id', clientId);
-    u.searchParams.set('scope', 'read_write');
-    u.searchParams.set('redirect_uri', redirectUri);
-    u.searchParams.set('state', state);
-    res.json({ authorization_url: u.toString() });
+    const merchant = platform.getMerchant(req.params.id);
+    const info = merchant.stripe || {};
+    if (info.account_id) {
+      try { await stripe.deauthorizeOAuthAccount(info.account_id); }
+      catch (e) { console.error('[stripe] deauthorize 失败（继续本地解绑）:', e.message); }
+    }
+    platform.setMerchantStripe(req.params.id, {
+      bound: false, via: '', account_id: '', charges_enabled: false,
+      payouts_enabled: false, details_submitted: false,
+      requirements_currently_due: [], updated_at: new Date().toISOString(),
+    });
+    platform.setChannelStatus(req.params.id, 'fiat', 'draft');
+    res.json({ merchant_id: req.params.id, stripe: { bound: false }, channel: 'fiat', status: 'draft' });
   } catch (err) {
     res.status(400).json({ error: err.message });
-  }
-});
-
-// Stripe OAuth 回调：交换一次性 code，丢弃 access_token，只保存账户 ID。
-app.get('/api/v1/stripe/oauth/callback', async (req, res) => {
-  const state = String(req.query.state || '');
-  const saved = stripeOAuthStates.get(state);
-  stripeOAuthStates.delete(state);
-  const fallback = '/portal.html?stripe=oauth_error';
-  if (!saved || saved.expires_at < Date.now()) return res.redirect(302, fallback + '&reason=invalid_state');
-  if (req.query.error) return res.redirect(302, `/portal.html?stripe=oauth_error&reason=${encodeURIComponent(String(req.query.error))}`);
-  try {
-    const secretKey = String(process.env.STRIPE_SECRET_KEY || '').trim();
-    if (!secretKey) throw new Error('Stripe 未配置 STRIPE_SECRET_KEY');
-    const body = new URLSearchParams({
-      client_secret: secretKey,
-      code: String(req.query.code || ''),
-      grant_type: 'authorization_code',
-      redirect_uri: saved.redirect_uri,
-    });
-    const r = await fetch('https://connect.stripe.com/oauth/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body,
-    });
-    const text = await r.text();
-    const data = text ? JSON.parse(text) : {};
-    if (!r.ok || !data.stripe_user_id) throw new Error(data.error_description || data.error || 'Stripe OAuth 授权失败');
-    let account = { id: data.stripe_user_id, charges_enabled: false, payouts_enabled: false, details_submitted: true };
-    try { account = await stripe.getConnectedAccount(data.stripe_user_id); } catch (err) { console.warn(`[stripe:oauth] 账户状态暂无法通过 v2 查询: ${err.message}`); }
-    platform.setMerchantStripe(saved.merchant_id, {
-      bound: true,
-      account_id: data.stripe_user_id,
-      oauth: true,
-      scope: data.scope || 'read_write',
-      charges_enabled: !!account.charges_enabled,
-      payouts_enabled: !!account.payouts_enabled,
-      details_submitted: !!account.details_submitted,
-      mode: data.livemode ? 'live' : 'test',
-    });
-    platform.setChannelStatus(saved.merchant_id, 'fiat', account.charges_enabled ? 'active' : 'pending');
-    res.redirect(302, `/portal.html?stripe=connected&merchant_id=${encodeURIComponent(saved.merchant_id)}&stripe_oauth=1`);
-  } catch (err) {
-    console.error(`[stripe:oauth] ${err.message}`);
-    res.redirect(302, `/portal.html?stripe=oauth_error&reason=${encodeURIComponent(err.message)}`);
   }
 });
 

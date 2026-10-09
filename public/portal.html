@@ -509,17 +509,7 @@
   </div>
 </div>
 
-<div class="modal-mask" id="chanConfirmMask">
-  <div class="modal" style="max-width:420px">
-    <h3>确认授权信息</h3>
-    <div class="rf-row"><span>收单机构</span><b id="ccName"></b></div>
-    <div class="rf-row"><span>结算币种</span><b>按你配置的币种结算</b></div>
-    <div class="rf-tip">点确认后将跳转到通道官方授权页完成授权，Jirvs 不收集你的通道账号密码。</div>
-    <div class="mrow"><button class="primary" onclick="doConnectChan()">确认，去授权</button><button class="ghost" onclick="closeModal('chanConfirmMask')">取消</button></div>
-  </div>
-</div>
-
-<!-- 连接收单机构：有没有账号 -->
+<!-- 连接收单机构：有没有账号（v21.7.3：两个选项都走同一套 OAuth，区别只在引导文案） -->
 <div class="modal-mask" id="chanChoiceMask">
   <div class="modal" style="max-width:420px">
     <h3 id="chcTitle">连接 Stripe</h3>
@@ -527,11 +517,11 @@
     <div class="pick-grid">
       <button class="pick" id="chcHave" onclick="pickChanChoice(true)">
         <div class="pt" id="chcHavePt">我已有 Stripe 账号</div>
-        <div class="pd">登录 Stripe 并授权 Jirvs 读取收款账户</div>
+        <div class="pd">去 Stripe 官方授权页登录并授权</div>
       </button>
       <button class="pick" id="chcNone" onclick="pickChanChoice(false)">
         <div class="pt" id="chcNonePt">我还没有 Stripe 账号</div>
-        <div class="pd">在 Stripe 托管页面创建并完成商户审核</div>
+        <div class="pd">在 Stripe 官方授权页直接注册再授权</div>
       </button>
     </div>
     <div class="btnrow" style="flex-direction:column">
@@ -541,16 +531,13 @@
   </div>
 </div>
 
-<!-- 没账号：去通道官网注册 -->
+<!-- 没账号：说明（OAuth 授权页内可直接注册，无需先去别处） -->
 <div class="modal-mask" id="chanRegMask">
   <div class="modal" style="max-width:420px">
-    <h3>开通 <span id="chrName">Stripe</span> 商户</h3>
-    <div class="line" style="margin:6px 0 10px">通过 Stripe Connect 完成商户注册和 KYB 审核，Jirvs 不收集你的银行卡或身份资料。</div>
-    <div class="hint">Jirvs 不收集你的开户资料，注册在通道官网完成。</div>
-    <div style="margin-top:10px"><button class="help-link" onclick="toast('演示版：正式版在此播放注册录屏教程')">📺 注册教程</button></div>
+    <h3>连接 <span id="chrName">Stripe</span></h3>
+    <div class="line" style="margin:6px 0 10px">接下来跳转到 Stripe 官方授权页：有账号就登录并点授权，没有账号可以在那一步直接注册一个再授权。Jirvs 不收集你的账号密码和身份资料。</div>
     <div class="btnrow" style="flex-direction:column;margin-top:14px">
-      <button class="primary" onclick="regGoSite()">去官网注册</button>
-      <button class="ghost" onclick="regGoAuth()">我已注册，去授权</button>
+      <button class="primary" onclick="goStripeOAuth()">去 Stripe 授权</button>
       <button class="ghost" onclick="closeModal('chanRegMask')">取消</button>
     </div>
   </div>
@@ -607,6 +594,11 @@ async function apiPost(url, body) {
   if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error || ('请求失败 '+r.status)); }
   return r.json();
 }
+async function apiDel(url) {
+  const r = await fetch(url, {method:'DELETE', credentials:'include'});
+  if (!r.ok) { const e = await r.json().catch(()=>({})); throw new Error(e.error || ('请求失败 '+r.status)); }
+  return r.json();
+}
 // 后端订单状态 → 前端显示
 function mapOrderStatus(s) {
   const m = {succeeded:'已支付', paid:'已支付', pending:'待支付', processing:'支付中',
@@ -650,6 +642,11 @@ async function loadAllData() {
     try { const cj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/channels'); chState = cj.channels_state || cj || {}; } catch(e) {}
     if (new URLSearchParams(location.search).get('stripe') === 'connected') {
       try { const sj = await apiGet('/api/v1/merchants/' + m.merchant_id + '/stripe'); m.stripe = sj.stripe || m.stripe; } catch(e) {}
+      setTimeout(() => toast('Stripe 授权成功，通道已绑定'), 600);
+    }
+    if (new URLSearchParams(location.search).get('stripe') === 'error') {
+      const em = new URLSearchParams(location.search).get('msg') || 'Stripe 授权失败';
+      setTimeout(() => toast(em), 600);
     }
     acct.fiat = {
       name: m.company_name || m.company || m.name || '',
@@ -1102,14 +1099,14 @@ function renderFiatChannels() {
     $('fiatChanBody').innerHTML = `<div class="noreg">还没完善主体信息<br><span style="font-size:12.5px">点上方「完善信息」，完成后即可连接收单机构</span></div>`;
     return;
   }
-  const intro = {stripe:'优势：Stripe Connect 托管开户、银行卡收款和商户结算'};
+  const intro = {stripe:'一键授权绑定你的 Stripe 账号；顾客付款直接结算到你的 Stripe 账号，Jirvs 不经手资金'};
   const card = (key, title) => {
     const on = acct.fiat[key] === 'active';
     const sel = on && selChans.includes(key);
     return `<div class="chan fiat${on ? ' pickable' : ''}${sel ? ' sel' : ''}"${on ? ` onclick="toggleChan('${key}')"` : ''}><h3>${title}${on ? '<span class="pick">✓</span>' : ''}</h3>
       <div style="margin:0 0 6px">${on ? '<span class="st ok">已连接</span>' : '<span class="st bad">未连接</span>'}</div>
       <div class="line">${intro[key]}</div>
-      ${on ? ``
+      ${on ? `<div class="btnrow"><button class="ghost" onclick="event.stopPropagation();unbindChan('${key}')">解绑</button></div>`
            : `<div class="btnrow"><button class="primary" id="conn_${key}" onclick="chooseChan('${key}')">连接 ${title}</button></div>`}
     </div>`;
   };
@@ -1126,16 +1123,10 @@ function toggleChan(key) {
 }
 let selChans = ['stripe'];
 function toggleIntSec() { $('intSec').classList.toggle('open'); }
-let chanPending = null;
-let chanChoiceKey = null;
 let chanChoiceSel = null;
 function chooseChan(key) {
-  chanChoiceKey = key;
+  if (key !== 'stripe') return;
   chanChoiceSel = null;
-  const t = key === 'stripe' ? 'Stripe' : key;
-  $('chcTitle').textContent = '连接 ' + t;
-  $('chcHavePt').textContent = '我已有 ' + t + ' 账号';
-  $('chcNonePt').textContent = '我还没有 ' + t + ' 账号';
   $('chcHave').classList.remove('on');
   $('chcNone').classList.remove('on');
   $('chanChoiceMask').classList.add('open');
@@ -1147,35 +1138,26 @@ function pickChanChoice(have) {
 }
 function chanChoiceGo() {
   if (chanChoiceSel === null) { toast('请先选择一项'); return; }
-  if (chanChoiceSel) choiceAuth(); else choiceReg();
+  if (chanChoiceSel) goStripeOAuth(); else choiceReg();
 }
-function choiceAuth() {
+// v21.7.3: 统一走同一套 OAuth 后端（POST /stripe/connect → authorize_url）。
+function goStripeOAuth() {
   closeModal('chanChoiceMask');
-  if (chanChoiceKey !== 'stripe') return connectChan(chanChoiceKey);
-  apiGet('/api/v1/merchants/' + acct.merchant_id + '/stripe/oauth/start')
-    .then((j) => { if (!j.authorization_url) throw new Error('Stripe 未返回授权地址'); location.href = j.authorization_url; })
+  closeModal('chanRegMask');
+  apiPost('/api/v1/merchants/' + acct.merchant_id + '/stripe/connect', {})
+    .then((j) => { if (!j.authorize_url) throw new Error('Stripe 未返回授权地址'); location.href = j.authorize_url; })
     .catch((e) => toast(e.message));
 }
 function choiceReg() {
   closeModal('chanChoiceMask');
-  const t = chanChoiceKey === 'stripe' ? 'Stripe' : chanChoiceKey;
-  $('chrName').textContent = t;
-  document.querySelectorAll('#chanRegMask .chnm').forEach(e => e.textContent = t);
   $('chanRegMask').classList.add('open');
 }
-function regGoSite() { closeModal('chanRegMask'); connectChan('stripe'); }
-function regGoAuth() { closeModal('chanRegMask'); connectChan(chanChoiceKey); }
-function connectChan(key) {
-  chanPending = key;
-  $('ccName').textContent = key === 'stripe' ? 'Stripe Connect' : key;
-  $('chanConfirmMask').classList.add('open');
-}
-function doConnectChan() {
-  const key = chanPending;
-  closeModal('chanConfirmMask');
+// v21.7.3: 解绑 Stripe（本地删除绑定，并尽力在 Stripe 端撤销授权）。
+function unbindChan(key) {
   if (key !== 'stripe') return;
-  apiPost('/api/v1/merchants/' + acct.merchant_id + '/stripe/connect', { country: acct.fiat.country })
-    .then((j) => { if (!j.onboarding_url) throw new Error('Stripe 未返回开户链接'); location.href = j.onboarding_url; })
+  if (!confirm('确定解绑 Stripe 吗？解绑后该通道不可收款，可随时重新授权。')) return;
+  apiDel('/api/v1/merchants/' + acct.merchant_id + '/stripe')
+    .then(() => { toast('已解绑'); setTimeout(() => location.reload(), 900); })
     .catch((e) => toast(e.message));
 }
 

@@ -612,6 +612,19 @@ function createPlatform() {
     return '';
   }
 
+  // v21.7.3: 按 Stripe connected account ID 反查商户（防同一 Stripe 账号绑多个商户）。
+  function findMerchantByStripeAccount(account_id) {
+    if (!account_id) return '';
+    const rows = db.prepare('SELECT merchant_id, stripe FROM merchants').all();
+    for (const r of rows) {
+      try {
+        const s = r.stripe ? JSON.parse(r.stripe) : null;
+        if (s && s.bound && s.account_id === account_id) return r.merchant_id;
+      } catch { /* 忽略坏数据 */ }
+    }
+    return '';
+  }
+
   // 支付方式展示名
   function railDisplayName({ rail, token, network } = {}) {
     if (String(rail || '').toLowerCase() === 'stablecoin') {
@@ -844,7 +857,7 @@ function createPlatform() {
     createMerchant, createMerchantDraft, deleteMerchant, addChannel, updateMerchantProfile, getMerchant, getMerchantInternal, verifyApiKey, listMerchants, assertOwnMerchant, rotateMerchantKey,
     freezeMerchant, unfreezeMerchant, isMerchantFrozen, isUserFrozen,
     setMerchantNowPayments, updateMerchantNowPayments, getMerchantNowPaymentsSecrets,
-    setMerchantAntom, setMerchantStripe, updateMerchantStripe, setMerchantPayoneer, updateMerchantPayoneer, findMerchantByPayoneerAccount,
+    setMerchantAntom, setMerchantStripe, updateMerchantStripe, setMerchantPayoneer, updateMerchantPayoneer, findMerchantByPayoneerAccount, findMerchantByStripeAccount,
     getChannelState, saveChannelDraft, setChannelStatus, channelIsActive,
     railDisplayName, recordOrder, updateOrder, getOrder, listOrders, findOrderByPayment,
     recordRefund, fundsOverview,
