@@ -379,9 +379,8 @@ app.post('/api/v1/auth/send-code', async (req, res) => {
     const html = `<p>你的 Jirvs 商户门户注册验证码是：<b style="font-size:20px;letter-spacing:4px">${code}</b>（10 分钟内有效）。</p><p>如果这不是你本人的操作，请忽略本邮件。</p>`;
     try { await sendMail({ to: email, subject: 'Jirvs 商户门户：注册验证码', html }); }
     catch (e) { console.error('[send-code] 发信失败:', e.message); return res.status(502).json({ error: '验证码邮件发送失败，请稍后重试' }); }
-    // 本地开发（未配置 RESEND_API_KEY）把验证码带回前端，方便调试；生产不会返回
-    const dev = !process.env.RESEND_API_KEY;
-    res.json({ ok: true, ...(dev ? { dev_code: code } : {}) });
+    // 本地开发未配 RESEND_API_KEY 时，sendMail 内部会把验证码打印到控制台（服务端仍可调试）
+    res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
