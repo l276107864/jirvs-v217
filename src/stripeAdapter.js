@@ -212,7 +212,7 @@ function createAdapter() {
       'line_items[0][quantity]': 1,
       success_url: `${success_url || ''}${String(success_url || '').includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancel_url || '',
-      'payment_method_types[0]': 'card',
+      // v8.1: Stripe 新版 API 不再支持 payment_method_types，支付方式由 Stripe 后台设置决定
       client_reference_id: String(order_id),
       'metadata[order_id]': String(order_id),
       'metadata[merchant_id]': String(merchant_id),

@@ -1537,7 +1537,7 @@ async function createSubscriptionCheckout(db, mid, req) {
   // v21.7: Stripe Checkout（一次付清；卡 / 微信支付 / 支付宝，需在 Stripe 后台启用）
   const session = await sdk.checkout.sessions.create({
     mode: 'payment',
-    payment_method_types: ['card', 'wechat_pay', 'alipay'],
+    // v8.1: Stripe 新版 API 不再支持 payment_method_types 参数，支付方式改由 Stripe 后台设置里开关
     line_items: [{ price_data: { currency: 'usd', unit_amount: Math.round(amount * 100), product_data: { name: 'Jirvs 终身订阅' } }, quantity: 1 }],
     success_url: `${baseUrl(req)}/portal.html?sub=success`,
     cancel_url: `${baseUrl(req)}/portal.html?sub=cancel`,
