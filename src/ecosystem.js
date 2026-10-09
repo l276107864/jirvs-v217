@@ -30,6 +30,8 @@ function onSubscriptionPaid(db, sub) {
   const p = db.prepare('SELECT * FROM partners WHERE id = ?').get(m.partner_id);
   if (!p || p.sign_status !== 'signed') return null;
 
+  const existing = db.prepare('SELECT id, amount, rate, status FROM commissions WHERE subscription_id = ? LIMIT 1').get(sub.id);
+  if (existing) return { ...existing, deduped: true };
   const rate = rateFor(p.contract_ver);
   const amount = Math.round(sub.amount * rate) / 100;
 
@@ -40,6 +42,28 @@ function onSubscriptionPaid(db, sub) {
     .run(id, p.id, sub.merchant_id, sub.id, amount, rate, nowBJ());
 
   return { id, amount, rate, status: 'pending' };
+}
+
+// 只允许由验签后的支付回调调用：pending -> active，且重复回调安全返回。
+function activateSubscription(db, { subscriptionId, paymentId, amount, currency = 'USD', eventId }) {
+  if (!subscriptionId || !paymentId) throw new Error('subscription_id 与 payment_id 必填');
+  if (eventId) {
+    const seen = db.prepare('SELECT event_id FROM subscription_webhook_events WHERE event_id = ?').get(eventId);
+    if (seen) return { ok: true, deduped: true, status: 'active' };
+  }
+  const sub = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(subscriptionId);
+  if (!sub) throw new Error('订阅不存在');
+  if (sub.currency !== currency) throw new Error('支付币种与订阅币种不一致');
+  if (Number(sub.amount) !== Number(amount)) throw new Error('支付金额与订阅金额不一致');
+  if (sub.status === 'active') return { ok: true, deduped: true, status: 'active', id: sub.id };
+  if (sub.status !== 'pending') throw new Error(`订阅状态不可激活：${sub.status}`);
+  const paidAt = nowBJ();
+  db.prepare(`UPDATE subscriptions SET status = 'active', paid_at = ?, payment_id = ? WHERE id = ? AND status = 'pending'`)
+    .run(paidAt, String(paymentId), sub.id);
+  const updated = db.prepare('SELECT * FROM subscriptions WHERE id = ?').get(sub.id);
+  const commission = onSubscriptionPaid(db, updated);
+  if (eventId) db.prepare('INSERT INTO subscription_webhook_events (event_id, received_at) VALUES (?, ?)').run(eventId, paidAt);
+  return { ok: true, id: sub.id, status: updated.status, commission };
 }
 
 // 每月5号执行：打上个月的所有待打款佣金
@@ -91,5 +115,5 @@ function partnerSummary(db, partnerId) {
 
 module.exports = {
   uid, nowBJ, rateFor,
-  onSubscriptionPaid, runMonthlyPayout, partnerSummary,
+  onSubscriptionPaid, activateSubscription, runMonthlyPayout, partnerSummary,
 };

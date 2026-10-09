@@ -5,6 +5,7 @@ const os = require('os');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jirvs-fiat-'));
 process.env.DB_PATH = path.join(tmp, 'jirvs.db');
 const { createPlatform } = require('../src/platform');
+const eco = require('../src/ecosystem');
 
 let pass = 0;
 function ok(name, condition) {
@@ -42,10 +43,34 @@ const now = new Date().toISOString();
 db.prepare('UPDATE users SET referral_code = ?, referral_captured_at = ? WHERE id = ?').run('PTEST', now, user.id);
 const ref = db.prepare('SELECT referral_code, referral_captured_at FROM users WHERE id = ?').get(user.id);
 const validReferral = ref.referral_code === 'PTEST' && Date.now() - new Date(ref.referral_captured_at).getTime() <= 30 * 86400000;
-ok('推荐码 30 天窗口可判断', validReferral);
+ok('旧版推荐字段不参与当前计佣规则', validReferral);
 const old = new Date(Date.now() - 31 * 86400000).toISOString();
 db.prepare('UPDATE users SET referral_captured_at = ? WHERE id = ?').run(old, user.id);
 const expired = db.prepare('SELECT referral_captured_at FROM users WHERE id = ?').get(user.id);
-ok('推荐码超过 30 天失效', Date.now() - new Date(expired.referral_captured_at).getTime() > 30 * 86400000);
+ok('旧版推荐字段仅保留兼容，不影响当前订阅回调', Date.now() - new Date(expired.referral_captured_at).getTime() > 30 * 86400000);
+
+const partnerA = 'partner-a';
+const partnerB = 'partner-b';
+db.prepare(`INSERT INTO partners (id, name, contract_ver, sign_status, ref_code, created_at)
+  VALUES (?, ?, 'V1', 'signed', ?, datetime('now'))`).run(partnerA, 'Partner A', 'OLDA');
+db.prepare(`INSERT INTO partners (id, name, contract_ver, sign_status, ref_code, created_at)
+  VALUES (?, ?, 'V1', 'signed', ?, datetime('now'))`).run(partnerB, 'Partner B', 'NEWB');
+db.prepare("UPDATE merchants SET partner_id = ?, referred_at = datetime('now') WHERE merchant_id = ?")
+  .run(partnerB, merchant.merchant_id);
+const subId = 'sub_smoke';
+db.prepare(`INSERT INTO subscriptions
+  (id, merchant_id, plan, amount, currency, status, paid_at, expires_at, referral_code, created_at)
+  VALUES (?, ?, 'lifetime', 199, 'USD', 'pending', '', '', 'NEWB', datetime('now'))`)
+  .run(subId, merchant.merchant_id);
+let activated = eco.activateSubscription(db, {
+  subscriptionId: subId, paymentId: 'aw_pay_1', amount: 199, currency: 'USD', eventId: 'evt_1',
+});
+ok('支付成功回调将订阅从 pending 激活', activated.status === 'active');
+ok('最新推荐码对应的伙伴获得佣金', activated.commission && activated.commission.amount === 59.7);
+const commissionCount = db.prepare('SELECT COUNT(*) AS n FROM commissions WHERE subscription_id = ?').get(subId).n;
+ok('重复支付回调不会重复计佣', eco.activateSubscription(db, {
+  subscriptionId: subId, paymentId: 'aw_pay_1', amount: 199, currency: 'USD', eventId: 'evt_1',
+}).deduped === true && commissionCount === 1);
+ok('订阅记录保存支付单号', db.prepare('SELECT payment_id FROM subscriptions WHERE id = ?').get(subId).payment_id === 'aw_pay_1');
 
 console.log(`ALL PASS (${pass})`);
