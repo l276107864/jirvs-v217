@@ -1052,7 +1052,18 @@ async function eRegSubmit() {
 
 /* ===== 订阅 ===== */
 let pick = 'month';
-(function(){const q=new URLSearchParams(location.search);if(q.get('sub')==='success'){setTimeout(()=>toast('订阅支付成功，正在开通…'),600);}if(q.get('sub')==='cancel'){setTimeout(()=>toast('已取消支付，可重新下单'),600);}})();
+(function(){const q=new URLSearchParams(location.search);if(q.get('sub')==='success'){
+  // v8.2: 付完跳回后轮询订阅状态，激活了就刷新页面数据
+  setTimeout(()=>toast('订阅支付成功，正在开通…'),600);
+  let n=0; const timer=setInterval(async ()=>{
+    n++;
+    try{
+      const sj=await apiGet('/api/v1/subscriptions/status');
+      if(sj.active){clearInterval(timer);toast('订阅已开通');await loadAllData();renderHeader();}
+      else if(n>=24){clearInterval(timer);} // 最多轮询约2分钟
+    }catch(e){ if(n>=24) clearInterval(timer); }
+  },5000);
+}if(q.get('sub')==='cancel'){setTimeout(()=>toast('已取消支付，可重新下单'),600);}})();
 function openSub() {
   const linkRef = new URLSearchParams(location.search).get('ref') || new URLSearchParams(location.search).get('ref_code') || '';
   if (linkRef && !$('subRefCode').value) $('subRefCode').value = linkRef.toUpperCase();
