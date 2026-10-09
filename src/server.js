@@ -35,13 +35,13 @@ const PORT = process.env.PORT || 3000;
 const https = require('https');
 function sendMail({ to, subject, html }) {
   const apiKey = process.env.RESEND_API_KEY;
-  // 发件人默认用 jirvs.com（已在 Resend 验证域名）；未验证前可用 MAIL_FROM 覆盖。
-const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
+  const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
   if (!apiKey) {
     console.log(`[mail:dev] 未配置 RESEND_API_KEY，不真发。to=${to} subject=${subject}`);
     console.log(`[mail:dev] html=${String(html).slice(0, 600)}...`);
     return Promise.resolve({ dev: true });
   }
+  console.log(`[mail] 发送中 to=${to} from=${from} subject=${subject}`);
   const body = JSON.stringify({ from, to: [to], subject, html });
   return new Promise((resolve, reject) => {
     const req = https.request('https://api.resend.com/emails', {
@@ -55,11 +55,17 @@ const from = process.env.MAIL_FROM || 'Jirvs <noreply@jirvs.com>';
       let data = '';
       res.on('data', (c) => { data += c; });
       res.on('end', () => {
-        if (res.statusCode >= 200 && res.statusCode < 300) resolve(JSON.parse(data || '{}'));
-        else reject(new Error(`Resend 发信失败 (${res.statusCode}): ${data.slice(0, 200)}`));
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          console.log(`[mail] 发送成功 status=${res.statusCode} body=${data.slice(0, 200)}`);
+          resolve(JSON.parse(data || '{}'));
+        }
+        else {
+          console.error(`[mail] 发送失败 status=${res.statusCode} body=${data.slice(0, 300)}`);
+          reject(new Error(`Resend 发信失败 (${res.statusCode}): ${data.slice(0, 200)}`));
+        }
       });
     });
-    req.on('error', reject);
+    req.on('error', (e) => { console.error(`[mail] 网络错误 ${e.message}`); reject(e); });
     req.write(body);
     req.end();
   });
@@ -430,7 +436,6 @@ app.post('/api/v1/auth/verify-code', (req, res) => {
 // v21.7：注册改为两步——先邮箱验证码校验，再填主体信息；主体信息在注册时一并落库
 app.post('/api/v1/auth/register', async (req, res) => {
   try {
-<<<<<<< HEAD
     const { email, password, code, company_name, country, ref_code } = req.body || {};
     const em = String(email || '').trim().toLowerCase();
     // 1) 验证码校验（通过后消费，一次性）
@@ -455,10 +460,6 @@ app.post('/api/v1/auth/register', async (req, res) => {
       const partner = platform.db.prepare("SELECT ref_code FROM partners WHERE ref_code = ? AND sign_status = 'signed'").get(ref);
       if (partner) platform.db.prepare('UPDATE users SET referral_code = ?, referral_captured_at = ? WHERE id = ?').run(ref, new Date().toISOString(), user.id);
     }
-=======
-    const { email, password } = req.body || {};
-    const user = platform.createUser({ email, password });
->>>>>>> 1d08f2cdf40dee9124eeae70c7907a3cb72769c7
     const sess = platform.createSession(user.id);
     setSessionCookie(req, res, sess.token, sess.expires_at);
     res.json({ user, expires_at: sess.expires_at });
