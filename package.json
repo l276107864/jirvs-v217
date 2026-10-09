@@ -9,6 +9,9 @@
   "license": "MIT",
   "main": "src/server.js",
   "name": "jirvs-payments",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "start": "node src/server.js",
     "test": "node test/run-fiat-only.js"
