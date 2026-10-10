@@ -268,7 +268,11 @@ function createAdapter() {
   }
 
   function parseWebhook(raw, signature) {
-    verifySignature(raw, signature, webhookSecret);
+    return parseWebhookWithSecret(raw, signature, webhookSecret);
+  }
+
+  function parseWebhookWithSecret(raw, signature, secret) {
+    verifySignature(raw, signature, secret);
     const event = JSON.parse(raw);
     const obj = event.data?.object || {};
     const type = String(event.type || '').toLowerCase();
@@ -307,6 +311,7 @@ function createAdapter() {
     cancelPayment,
     getCheckoutSession,
     parseWebhook,
+    parseWebhookWithSecret,
   };
 }
 

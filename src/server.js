@@ -235,6 +235,39 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
   }
 });
 
+// v9.4: Stripe Connect webhook（平台统一收，商户零配置）
+// 在 Jirvs 平台 Stripe 号的 Dashboard → Developers → Webhooks 里加 Connect 事件端点
+// URL: https://<domain>/webhooks/stripe-connect ，密钥放 STRIPE_CONNECT_WEBHOOK_SECRET
+app.post('/webhooks/stripe-connect', express.raw({ type: 'application/json' }), async (req, res) => {
+  try {
+    const connectSecret = String(process.env.STRIPE_CONNECT_WEBHOOK_SECRET || '').trim();
+    if (!connectSecret) return res.status(500).json({ error: 'STRIPE_CONNECT_WEBHOOK_SECRET 未配置' });
+    const event = stripe.parseWebhookWithSecret(req.body.toString(), req.headers['stripe-signature'], connectSecret);
+    if (event.event_id && processedIpn.has(`stripe-connect:${event.event_id}`)) return res.json({ received: true, deduped: true });
+    if (event.event_id) processedIpn.add(`stripe-connect:${event.event_id}`);
+    // Connect 事件带 account 字段（商户的连接账号 ID）
+    const raw = JSON.parse(req.body.toString());
+    const connectedAccountId = raw.account || '';
+    // 找到商户（按连接账号 ID）
+    let merchantId = event.merchant_id || '';
+    if (!merchantId && connectedAccountId) {
+      try {
+        const m = platform.findMerchantByStripeAccount(connectedAccountId);
+        if (m && m.merchant_id) merchantId = m.merchant_id;
+      } catch {}
+    }
+    const order = event.order_id ? platform.getOrder(event.order_id) : platform.findOrderByPayment(event.payment_id);
+    if (order) {
+      const status = event.status === 'succeeded' ? 'succeeded' : event.status === 'canceled' ? 'canceled' : event.status === 'failed' ? 'failed' : 'pending';
+      platform.updateOrder(order.order_id, { status, payment_id: event.payment_id, gateway: 'stripe', rail: 'card' });
+      await eventBus.emit({ type: `payment.${status}`, payment_id: event.payment_id, order_id: order.order_id, merchant_id: order.merchant_id || merchantId, amount: order.amount, currency: order.currency, provider: 'stripe', rail: 'card', connected_account: connectedAccountId });
+    }
+    res.json({ received: true, event: event.raw_type, account: connectedAccountId, merchant_id: merchantId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // v18: NOWPayments IPN 回调（按商户区分验签密钥）
 // URL 在建单时通过 ipn_callback_url 传入：/webhooks/nowpayments/:merchant_id
 // 官方失败会按商户配置重复推送，本接口验签失败回 400、成功回 200，重复推送按幂等键去重。
