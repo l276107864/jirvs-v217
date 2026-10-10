@@ -438,10 +438,10 @@
     <h3>订阅 Jirvs</h3>
     <div id="subStatus" style="font-size:13px;color:var(--muted);line-height:1.8"></div>
     <label for="subRefCode">推荐码（可选）</label>
-    <input id="subRefCode" placeholder="填写推荐码，或通过推荐链接自动带入" autocomplete="off" />
+    <input id="subRefCode" placeholder="填写推荐码，或通过推荐链接自动带入" autocomplete="off" oninput="if(!this.readOnly)$('subPrice').textContent=this.value.trim()?'$199':'$299'" />
     <div class="hint">填推荐码立省 $100</div>
     <div class="plans">
-      <div class="plan on"><span class="tag">终身</span><span class="p">$299</span> <span class="u">终身</span><div class="u" style="margin-top:6px">填推荐码立省 $100</div></div>
+      <div class="plan on"><span class="tag">终身</span><span class="p" id="subPrice">$299</span> <span class="u">终身</span><div class="u" style="margin-top:6px">填推荐码立省 $100</div></div>
     </div>
     <div class="mrow"><button class="primary" id="subBuyBtn" onclick="buySub()">创建订阅订单</button></div>
     <div class="mrow" id="subRetryRow"><button class="ghost" id="subRetryBtn" onclick="retrySub()" style="display:none">重新发起支付</button></div>
@@ -622,8 +622,8 @@ let acct = null;
 let pendingKey = null;
 let curMod = 'fiat';
 
-function blankAcct(email) {
-  return { email,
+function blankAcct(email, referral_code) {
+  return { email, referral_code: referral_code || '',
     fiat:null,
     sub:{st:'none', plan:'', until:'', autorenew:false},
     fOrders:[],
@@ -712,7 +712,7 @@ async function checkSession() {
   try {
     const j = await apiGet('/api/v1/auth/me');
     if (j && j.user) {
-      acct = blankAcct(j.user.email);
+      acct = blankAcct(j.user.email, j.user.referral_code);
       curMod = 'fiat';
       await loadAllData();
       enterApp();
@@ -1066,7 +1066,21 @@ let pick = 'month';
 }if(q.get('sub')==='cancel'){setTimeout(()=>toast('已取消支付，可重新下单'),600);}})();
 function openSub() {
   const linkRef = new URLSearchParams(location.search).get('ref') || new URLSearchParams(location.search).get('ref_code') || '';
-  if (linkRef && !$('subRefCode').value) $('subRefCode').value = linkRef.toUpperCase();
+  // v8.3: 注册时填了推荐码的，订阅时自动带入并锁定不可改
+  const regRef = (acct.referral_code || '').toUpperCase();
+  const inp = $('subRefCode');
+  if (regRef) {
+    inp.value = regRef;
+    inp.readOnly = true;
+    inp.title = '注册时已绑定推荐码，不可更改';
+    $('subPrice').textContent = '$199';
+  } else {
+    inp.readOnly = false;
+    inp.title = '';
+    if (linkRef && !inp.value) inp.value = linkRef.toUpperCase();
+    // 有推荐码（链接带入或手动填）显示$199，否则$299
+    $('subPrice').textContent = inp.value.trim() ? '$199' : '$299';
+  }
   const isPending = acct.sub.st === 'pending'; // v8: 之前误写 acct.sub.pending（该属性不存在），pending 态永远显示错
   $('subStatus').innerHTML = acct.sub.st === 'active'
     ? '当前订阅：<b>终身</b> · 永久有效'

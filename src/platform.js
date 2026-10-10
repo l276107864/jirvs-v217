@@ -108,7 +108,7 @@ function createPlatform() {
       if (s) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
       return null;
     }
-    const u = db.prepare('SELECT id, email FROM users WHERE id = ?').get(s.user_id);
+    const u = db.prepare('SELECT id, email, referral_code FROM users WHERE id = ?').get(s.user_id);
     return u || null;
   }
 
@@ -640,8 +640,8 @@ function createPlatform() {
       (order_id, merchant_id, amount, currency, status, payment_id, gateway, mode, rail,
        description, charge_model, payoneer_account, token, network,
        nowpayments_payment_id, pay_amount, pay_currency, deposit_address, platform_fee,
-       checkout_session_id, stripe_account, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+       created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(
         o.order_id, o.merchant_id || '', Number(o.amount) || 0, String(o.currency || '').toLowerCase(),
         o.status || 'requires_payment_method', o.payment_id || '', o.gateway || '', o.mode || '',
@@ -650,7 +650,7 @@ function createPlatform() {
         o.nowpayments_payment_id || '',
         o.pay_amount != null ? Number(o.pay_amount) : null,
         o.pay_currency || '', o.deposit_address || '', Number(o.platform_fee) || 0,
-        o.checkout_session_id || '', o.stripe_account || '', o.created_at || now(), now(),
+        o.created_at || now(), now(),
       );
     return getOrder(o.order_id);
   }
@@ -663,8 +663,7 @@ function createPlatform() {
     }
     const keys = ['merchant_id', 'amount', 'currency', 'status', 'payment_id', 'gateway', 'mode',
       'rail', 'description', 'charge_model', 'payoneer_account', 'token', 'network',
-      'nowpayments_payment_id', 'pay_amount', 'pay_currency', 'deposit_address', 'platform_fee',
-      'checkout_session_id', 'stripe_account'];
+      'nowpayments_payment_id', 'pay_amount', 'pay_currency', 'deposit_address', 'platform_fee'];
     const sets = [];
     const vals = [];
     for (const k of keys) {
@@ -702,11 +701,6 @@ function createPlatform() {
   function findOrderByPayment(payment_id) {
     return db.prepare('SELECT * FROM orders WHERE payment_id = ? OR nowpayments_payment_id = ? LIMIT 1')
       .get(payment_id, payment_id) || null;
-  }
-
-  function findOrderByCheckoutSession(checkout_session_id) {
-    return db.prepare('SELECT * FROM orders WHERE checkout_session_id = ? LIMIT 1')
-      .get(checkout_session_id) || null;
   }
 
   function recordRefund({ order_id, amount, currency, refund_id }) {
@@ -865,7 +859,7 @@ function createPlatform() {
     setMerchantNowPayments, updateMerchantNowPayments, getMerchantNowPaymentsSecrets,
     setMerchantAntom, setMerchantStripe, updateMerchantStripe, setMerchantPayoneer, updateMerchantPayoneer, findMerchantByPayoneerAccount, findMerchantByStripeAccount,
     getChannelState, saveChannelDraft, setChannelStatus, channelIsActive,
-    railDisplayName, recordOrder, updateOrder, getOrder, listOrders, findOrderByPayment, findOrderByCheckoutSession,
+    railDisplayName, recordOrder, updateOrder, getOrder, listOrders, findOrderByPayment,
     recordRefund, fundsOverview,
     // v21.6 总后台
     createAdmin, verifyAdmin, listAdmins, createAdminSession, getAdminSessionAdmin, deleteAdminSession,

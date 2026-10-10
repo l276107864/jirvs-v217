@@ -11,7 +11,7 @@ const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
 const { createAdapter: createPayoneerAdapter } = require('./payoneerAdapter');
-const { createAdapter: createStripeAdapter, minorAmount } = require('./stripeAdapter');
+const { createAdapter: createStripeAdapter } = require('./stripeAdapter');
 const {
   createAdapter: createNowPaymentsAdapter,
   supportedTokens,
@@ -133,7 +133,15 @@ const ROUTE_PRIORITY = { card: ['stripe'] };
 // 这是服务端门禁的唯一依据：收银台只显示绿勾通道，建单 API 同规则校验。
 // 法币通道（card）→ Antom 真实联调测通才绿；稳定币通道（stablecoin）→ NOWPayments Key 校验通过才绿。
 function merchantProviderReady(merchant_id, provider) {
-  if (provider === 'stripe') return platform.channelIsActive(merchant_id, 'fiat');
+  if (provider === 'stripe') {
+    // v8.3: 通道 active 或者 Stripe 账号 charges_enabled 都算可用（防状态不同步）
+    if (platform.channelIsActive(merchant_id, 'fiat')) return true;
+    try {
+      const m = platform.getMerchant(merchant_id);
+      if (m && m.stripe && m.stripe.charges_enabled) return true;
+    } catch (e) {}
+    return false;
+  }
   return false;
 }
 
@@ -170,18 +178,13 @@ app.post('/webhooks/payoneer', express.raw({ type: 'application/json' }), async 
 
 // Stripe Connect Webhook：必须在 express.json() 前读取原始 body，验签后同步订单。
 app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
-  let eventId = '';
   try {
     const event = stripe.parseWebhook(req.body.toString(), req.headers['stripe-signature']);
-    eventId = event.event_id || '';
-    if (event.ignored) return res.json({ received: true, ignored: true, event: event.raw_type });
-    if (eventId) {
-      const prior = platform.db.prepare('SELECT status FROM stripe_webhook_events WHERE event_id = ?').get(eventId);
-      if (prior && prior.status === 'processed') return res.json({ received: true, deduped: true });
-      if (!prior) platform.db.prepare('INSERT OR IGNORE INTO stripe_webhook_events (event_id, status, updated_at) VALUES (?, ?, ?)').run(eventId, 'processing', new Date().toISOString());
-    }
+    if (event.event_id && processedIpn.has(`stripe:${event.event_id}`)) return res.json({ received: true, deduped: true });
+    if (event.event_id) processedIpn.add(`stripe:${event.event_id}`);
+    // v8: 终身订阅支付（Checkout 建单时 metadata 带 subscription_id）——直接激活订阅，不走订单逻辑
     if (event.metadata && event.metadata.subscription_id) {
-      if (event.raw_type === 'checkout.session.completed' && event.status === 'succeeded') {
+      if (event.raw_type === 'checkout.session.completed') {
         const result = eco.activateSubscription(platform.db, {
           subscriptionId: event.metadata.subscription_id,
           paymentId: event.payment_id,
@@ -189,42 +192,35 @@ app.post('/webhooks/stripe', express.raw({ type: 'application/json' }), async (r
           currency: (event.currency || 'USD').toUpperCase(),
           eventId: event.event_id ? `stripe:${event.event_id}` : undefined,
         });
-        if (eventId) platform.db.prepare('UPDATE stripe_webhook_events SET status = ?, updated_at = ? WHERE event_id = ?').run('processed', new Date().toISOString(), eventId);
         return res.json({ received: true, kind: 'subscription', ...result });
       }
       if (event.raw_type === 'checkout.session.expired') {
-        platform.db.prepare(`UPDATE subscriptions SET status = 'expired' WHERE id = ? AND status = 'pending'`)
-          .run(event.metadata.subscription_id);
-        if (eventId) platform.db.prepare('UPDATE stripe_webhook_events SET status = ?, updated_at = ? WHERE event_id = ?').run('processed', new Date().toISOString(), eventId);
+        try {
+          platform.db.prepare(`UPDATE subscriptions SET status = 'expired' WHERE id = ? AND status = 'pending'`)
+            .run(event.metadata.subscription_id);
+        } catch {}
         return res.json({ received: true, kind: 'subscription_expired' });
       }
-      if (eventId) platform.db.prepare('UPDATE stripe_webhook_events SET status = ?, updated_at = ? WHERE event_id = ?').run('processed', new Date().toISOString(), eventId);
       return res.json({ received: true, kind: 'subscription_ignored', event: event.raw_type });
     }
-    const order = event.order_id ? (() => { try { return platform.getOrder(event.order_id); } catch { return null; } })() : platform.findOrderByPayment(event.payment_id);
-    if (!order) throw new Error('Stripe Webhook 对应订单不存在');
-    const merchant = platform.getMerchant(order.merchant_id);
-    if (event.stripe_account && merchant.stripe?.account_id !== event.stripe_account) throw new Error('Stripe Webhook connected account 不匹配');
-    if (event.amount_minor != null && event.status === 'succeeded' && event.amount_minor !== minorAmount(order.amount, order.currency)) throw new Error('Stripe Webhook 金额不匹配');
-    if (event.currency && String(event.currency).toLowerCase() !== String(order.currency).toLowerCase()) throw new Error('Stripe Webhook 币种不匹配');
-    const status = event.status === 'succeeded' ? 'succeeded' : event.status === 'canceled' ? 'canceled' : event.status === 'failed' ? 'failed' : 'pending';
-    if (order.status === 'succeeded' && status !== 'succeeded') return res.json({ received: true, ignored: true, reason: 'final_order' });
-    platform.updateOrder(order.order_id, { status, payment_id: event.payment_id, gateway: 'stripe', rail: 'card' });
-    for (const rs of routedSessions.values()) {
-      if (rs.order_id === order.order_id || rs.payment_id === event.payment_id) {
-        rs.status = status === 'succeeded' ? 'complete' : status === 'canceled' || status === 'failed' ? 'closed' : rs.status;
-        rs.rail = 'card'; rs.routed_provider = 'stripe';
+    const order = event.order_id ? platform.getOrder(event.order_id) : platform.findOrderByPayment(event.payment_id);
+    if (order) {
+      const status = event.status === 'succeeded' ? 'succeeded' : event.status === 'canceled' ? 'canceled' : event.status === 'failed' ? 'failed' : 'pending';
+      platform.updateOrder(order.order_id, { status, payment_id: event.payment_id, gateway: 'stripe', rail: 'card' });
+      for (const rs of routedSessions.values()) {
+        if (rs.order_id === order.order_id || rs.payment_id === event.payment_id) {
+          rs.status = status === 'succeeded' ? 'complete' : status === 'canceled' || status === 'failed' ? 'closed' : rs.status;
+          rs.rail = 'card'; rs.routed_provider = 'stripe';
+        }
       }
+      await eventBus.emit({ type: `payment.${status === 'succeeded' ? 'succeeded' : status === 'canceled' ? 'canceled' : status === 'failed' ? 'failed' : 'updated'}`, payment_id: event.payment_id, order_id: order.order_id, merchant_id: order.merchant_id, amount: order.amount, currency: order.currency, provider: 'stripe', rail: 'card' });
     }
-    await eventBus.emit({ type: `payment.${status === 'succeeded' ? 'succeeded' : status === 'canceled' ? 'canceled' : status === 'failed' ? 'failed' : 'updated'}`, payment_id: event.payment_id, order_id: order.order_id, merchant_id: order.merchant_id, amount: order.amount, currency: order.currency, provider: 'stripe', rail: 'card' });
-    if (eventId) platform.db.prepare('UPDATE stripe_webhook_events SET status = ?, updated_at = ? WHERE event_id = ?').run('processed', new Date().toISOString(), eventId);
     res.json({ received: true, event: event.raw_type });
   } catch (err) {
-    if (eventId) platform.db.prepare('DELETE FROM stripe_webhook_events WHERE event_id = ? AND status = ?').run(eventId, 'processing');
-    const retryable = /不存在|不匹配|失败|超时|Stripe/.test(err.message);
-    res.status(retryable ? 500 : 400).json({ error: err.message });
+    res.status(400).json({ error: err.message });
   }
 });
+
 // v18: NOWPayments IPN 回调（按商户区分验签密钥）
 // URL 在建单时通过 ipn_callback_url 传入：/webhooks/nowpayments/:merchant_id
 // 官方失败会按商户配置重复推送，本接口验签失败回 400、成功回 200，重复推送按幂等键去重。
@@ -819,13 +815,6 @@ app.post('/api/v1/checkout/sessions', geoFence, requireApiKey, async (req, res) 
     }
     if (Number(amount) <= 0) return res.status(400).json({ error: 'amount 必须大于 0' });
     const base = `${req.protocol}://${req.get('host')}`;
-    let existing = null;
-    try { existing = platform.getOrder(order_id); } catch {}
-    if (existing && existing.merchant_id === merchant_id && existing.checkout_session_id && !['succeeded', 'canceled', 'failed'].includes(existing.status)) {
-      const restored = restoreRoutedSession(existing);
-      routedSessions.set(existing.checkout_session_id, restored);
-      return res.json({ ...restored, note: '已复用现有未完成收银台会话' });
-    }
 
     const rails = availableRails(merchant_id);
     if (!rails.length) {
@@ -838,7 +827,6 @@ app.post('/api/v1/checkout/sessions', geoFence, requireApiKey, async (req, res) 
     const session_id = 'cs_' + crypto.randomBytes(12).toString('hex');
     const session = {
       session_id,
-      checkout_session_id: session_id,
       checkout_url: `/checkout/${session_id}`,
       order_id,
       merchant_id,
@@ -882,16 +870,10 @@ app.post('/api/v1/checkout/sessions', geoFence, requireApiKey, async (req, res) 
   }
 });
 
-function restoreRoutedSession(order) {
-  const status = order.status === 'succeeded' ? 'complete' : ['canceled', 'failed'].includes(order.status) ? 'closed' : 'open';
-  return { session_id: order.checkout_session_id, checkout_session_id: order.checkout_session_id, order_id: order.order_id, merchant_id: order.merchant_id, amount: Number(order.amount), currency: order.currency, description: order.description || '', status, payment_id: order.payment_id || '', rail_options: ['card'], rail: order.rail || 'card', routed: true, gateway: order.gateway || 'stripe', mode: order.mode || 'live', success_url: '', cancel_url: '', stripe_account: order.stripe_account || '' };
-}
-
 // 查询收银台会话状态（成功页轮询用）
 app.get('/api/v1/checkout/sessions/:id', async (req, res) => {
   try {
-    let rs = routedSessions.get(req.params.id); // 先查 Jirvs 聚合会话
-    if (!rs) { const order = platform.findOrderByCheckoutSession(req.params.id); if (order) { rs = restoreRoutedSession(order); routedSessions.set(req.params.id, rs); } }
+    const rs = routedSessions.get(req.params.id); // 先查 Jirvs 聚合会话
     if (rs) return res.json(rs);
     const gw = adapters[sessionGateway.get(req.params.id) || 'stripe'];
     res.json(await gw.getCheckoutSession(req.params.id));
@@ -928,7 +910,7 @@ app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
     rs.mode = payment.mode;
     paymentGateway.set(payment.payment_id, 'stripe');
     sessionGateway.set(payment.session_id, 'stripe');
-    platform.updateOrder(rs.order_id, { payment_id: payment.payment_id, gateway: 'stripe', rail: 'card', mode: payment.mode, status: payment.status, checkout_session_id: rs.session_id, stripe_account: account });
+    platform.updateOrder(rs.order_id, { payment_id: payment.payment_id, gateway: 'stripe', rail: 'card', mode: payment.mode, status: payment.status });
     await eventBus.emit({ type: 'payment.created', payment_id: payment.payment_id, order_id: rs.order_id, merchant_id: rs.merchant_id, amount: rs.amount, currency: rs.currency, provider: 'stripe', rail: 'card' });
     res.json({ ...payment, session_id: rs.session_id, checkout_url: payment.checkout_url });
   } catch (err) {
@@ -1003,8 +985,7 @@ app.get('/sandbox-checkout/:id', (req, res) => {
   res.redirect(302, `/checkout/${req.params.id}`);
 });
 app.get('/checkout/:id', async (req, res) => {
-  let rs = routedSessions.get(req.params.id); // 先查 Jirvs 聚合会话
-  if (!rs) { const order = platform.findOrderByCheckoutSession(req.params.id); if (order) { rs = restoreRoutedSession(order); routedSessions.set(req.params.id, rs); } }
+  const rs = routedSessions.get(req.params.id); // 先查 Jirvs 聚合会话
   if (rs) {
     return res.send(renderCheckout(rs, 'jirvs'));
   }
@@ -1837,7 +1818,14 @@ app.post('/api/partner/signup', async (req, res) => {
     if (exists) return res.status(400).json({ error: '该邮箱已注册' });
     const id = eco.uid('p');
     const now = eco.nowBJ();
-    const refCode = ('P' + id.replace(/\D/g, '').slice(-6)).toUpperCase() || ('P' + Date.now().toString().slice(-6));
+    // v8.3: 邀请码改为8位纯数字
+    let refCode = '';
+    for (let i = 0; i < 10; i++) {
+      const c = String(Math.floor(10000000 + Math.random() * 90000000));
+      const dup = db.prepare('SELECT id FROM partners WHERE ref_code = ?').get(c);
+      if (!dup) { refCode = c; break; }
+    }
+    if (!refCode) refCode = String(Date.now()).slice(-8);
     const hashPassword = platform.hashPassword;
     db.prepare(`INSERT INTO partners
       (id, name, type, email, password_hash, phone, legal_name, bank_account, credit_code,
