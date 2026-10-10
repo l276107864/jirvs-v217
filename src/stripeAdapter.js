@@ -9,9 +9,9 @@ const API_BASE = 'https://api.stripe.com/v1';
 function formEncode(value, prefix, out = []) {
   if (value === undefined || value === null) return out;
   if (Array.isArray(value)) {
-    value.forEach((v, i) => formEncode(v, `${prefix}[${i}]`, out));
+    value.forEach((v, i) => formEncode(v, prefix ? `${prefix}[${i}]` : `${i}`, out));
   } else if (typeof value === 'object') {
-    Object.entries(value).forEach(([k, v]) => formEncode(v, `${prefix}[${k}]`, out));
+    Object.entries(value).forEach(([k, v]) => formEncode(v, prefix ? `${prefix}[${k}]` : k, out));
   } else {
     out.push(`${encodeURIComponent(prefix)}=${encodeURIComponent(String(value))}`);
   }

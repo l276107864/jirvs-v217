@@ -132,13 +132,25 @@ const ROUTE_PRIORITY = { card: ['stripe'] };
 // v21.2：通道是否可收款 = 对应通道有没有绿勾（channels_state.status === 'active'）。
 // 这是服务端门禁的唯一依据：收银台只显示绿勾通道，建单 API 同规则校验。
 // 法币通道（card）→ Antom 真实联调测通才绿；稳定币通道（stablecoin）→ NOWPayments Key 校验通过才绿。
-function merchantProviderReady(merchant_id, provider) {
+async function merchantProviderReady(merchant_id, provider) {
   if (provider === 'stripe') {
-    // v8.3: 通道 active 或者 Stripe 账号 charges_enabled 都算可用（防状态不同步）
+    // v8.5: 先查缓存，缓存没开再查 Stripe 实时状态（防状态不同步）
     if (platform.channelIsActive(merchant_id, 'fiat')) return true;
     try {
       const m = platform.getMerchant(merchant_id);
       if (m && m.stripe && m.stripe.charges_enabled) return true;
+      // 缓存说没开，查 Stripe 实时状态
+      if (m && m.stripe && m.stripe.account_id) {
+        try {
+          const st = await stripe.getOAuthAccountStatus(m.stripe.account_id);
+          if (st && st.charges_enabled) {
+            // 实时开了，顺手更新缓存
+            platform.setMerchantStripe(merchant_id, { ...m.stripe, charges_enabled: true, updated_at: new Date().toISOString() });
+            platform.setChannelStatus(merchant_id, 'fiat', 'active');
+            return true;
+          }
+        } catch (e) {}
+      }
     } catch (e) {}
     return false;
   }
@@ -146,10 +158,12 @@ function merchantProviderReady(merchant_id, provider) {
 }
 
 // 按商户已开通且完成验证的通道，算出收银台该显示哪些支付方式
-function availableRails(merchant_id) {
+async function availableRails(merchant_id) {
   const rails = [];
-  if (ROUTE_PRIORITY.card.some((provider) => merchantProviderReady(merchant_id, provider))) rails.push('card');
-
+  const providers = ROUTE_PRIORITY.card || [];
+  for (const provider of providers) {
+    if (await merchantProviderReady(merchant_id, provider)) { rails.push('card'); break; }
+  }
   return rails;
 }
 
@@ -816,7 +830,7 @@ app.post('/api/v1/checkout/sessions', geoFence, requireApiKey, async (req, res) 
     if (Number(amount) <= 0) return res.status(400).json({ error: 'amount 必须大于 0' });
     const base = `${req.protocol}://${req.get('host')}`;
 
-    const rails = availableRails(merchant_id);
+    const rails = await availableRails(merchant_id);
     if (!rails.length) {
       let exists = true;
       try { platform.getMerchant(merchant_id); } catch { exists = false; }
