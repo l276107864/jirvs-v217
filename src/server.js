@@ -991,7 +991,7 @@ app.get('/api/v1/orders/lookup', requireApiKey, async (req, res) => {
       try {
         // 找到商户的 Stripe 连接账号
         const m = platform.getMerchant ? platform.getMerchant(merchant_id) : null;
-        const stripeAcct = m && (m.stripe_account_id || m.stripe_user_id) ? (m.stripe_account_id || m.stripe_user_id) : null;
+        const stripeAcct = m && m.stripe && m.stripe.account_id ? m.stripe.account_id : null;
         if (stripeAcct) {
           const sess = await stripe.getCheckoutSession(o.payment_id, stripeAcct);
           if (sess && sess.status === 'succeeded') {
