@@ -204,10 +204,11 @@ function createAdapter() {
 
   async function createPayment({ connected_account_id, order_id, merchant_id, amount, currency, description, success_url, cancel_url, customer_email }) {
     const ccy = String(currency || 'USD').toLowerCase();
+    const unitAmt = minorAmount(amount, ccy);
     const params = {
       mode: 'payment',
       'line_items[0][price_data][currency]': ccy,
-      'line_items[0][price_data][unit_amount]': minorAmount(amount, ccy),
+      'line_items[0][price_data][unit_amount]': unitAmt,
       'line_items[0][price_data][product_data][name]': String(description || `Jirvs 订单 ${order_id}`).slice(0, 500),
       'line_items[0][quantity]': 1,
       success_url: `${success_url || ''}${String(success_url || '').includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
@@ -218,6 +219,8 @@ function createAdapter() {
       client_reference_id: String(order_id),
       'metadata[order_id]': String(order_id),
       'metadata[merchant_id]': String(merchant_id),
+      // v9.7: 平台收 1% application fee（终身订阅制，靠交易抽成维持）
+      'payment_intent_data[application_fee_amount]': Math.round(unitAmt * 0.01),
       ...(customer_email ? { customer_email: String(customer_email) } : {}),
     };
     const session = await apiFetch('/checkout/sessions', { method: 'POST', params, account: connected_account_id });
