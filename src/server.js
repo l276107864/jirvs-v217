@@ -1965,13 +1965,11 @@ function renderCheckout(s, provider = 'payoneer') {
   // 品牌图标：仅 Visa 与 Mastercard（SVG 内联，无外部请求）
   const visaSvg = '<svg viewBox="0 0 48 30" width="44" height="28" aria-label="Visa"><rect x="1" y="1" width="46" height="28" rx="4" fill="#1A1F71"/><text x="24" y="21" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-style="italic" font-weight="bold" font-size="13" fill="#fff">VISA</text></svg>';
   const mcSvg = '<svg viewBox="0 0 48 30" width="44" height="28" aria-label="Mastercard"><rect x="1" y="1" width="46" height="28" rx="4" fill="#1f2937"/><circle cx="20" cy="15" r="9" fill="#EB001B"/><circle cx="28" cy="15" r="9" fill="#F79E1B" fill-opacity="0.9"/></svg>';
+  // v9.0: 银行卡走 Stripe 托管页，Jirvs 不再收卡号（一次付款，无测试预填）
   const cardPane = showCard ? `
     <div id="paneCard"${initStable ? ' style="display:none"' : ''}>
       <div class="brands"><span class="brand" id="bVisa" title="Visa">${visaSvg}</span><span class="brand" id="bMc" title="Mastercard">${mcSvg}</span></div>
-      <label>卡号</label><input id="cc" inputmode="numeric" autocomplete="cc-number" value="4242 4242 4242 4242" />
-      <div class="row"><div><label>有效期</label><input value="12 / 28" autocomplete="cc-exp" /></div><div><label>CVC</label><input value="123" autocomplete="cc-csc" /></div></div>
-      <label>持卡人</label><input value="ZHANG SAN" autocomplete="cc-name" />
-      <div class="via" style="text-align:left;margin-top:10px">支持 Visa、Mastercard 银行卡</div>
+      <div class="via" style="text-align:left;margin-top:10px">点击确认支付后，将跳转到安全支付页面完成付款。<br>支持 Visa、Mastercard 银行卡</div>
     </div>` : '';
   // 稳定币 pane（NOWPayments 式）：
   // 步骤条 → 选币种/网络 → deposit 拿真实地址 → 大额展示 + 二维码 + 复制地址 + 网络警告 → 轮询等到账
