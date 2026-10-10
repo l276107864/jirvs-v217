@@ -896,6 +896,22 @@ app.get('/api/v1/checkout/sessions/:id', async (req, res) => {
   }
 });
 
+// v8.9: 按商户订单号查支付状态（给 WooCommerce 插件回调用，API Key 鉴权，不依赖内存）
+app.get('/api/v1/orders/lookup', requireApiKey, async (req, res) => {
+  try {
+    const merchant_id = req.merchant_id;
+    const order_id = String(req.query.order_id || '').trim();
+    if (!order_id) return res.status(400).json({ error: 'order_id 必填' });
+    const o = platform.db.prepare(
+      'SELECT order_id, merchant_id, amount, currency, status, gateway, rail, payment_id, created_at FROM orders WHERE merchant_id = ? AND order_id = ? ORDER BY created_at DESC LIMIT 1'
+    ).get(merchant_id, order_id);
+    if (!o) return res.status(404).json({ error: '订单不存在' });
+    res.json({ order_id: o.order_id, status: o.status, amount: o.amount, currency: o.currency, gateway: o.gateway, payment_id: o.payment_id });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // 银行卡收银台：创建 Stripe Checkout Session 后跳转到 Stripe 托管页面。
 app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
   const rs = routedSessions.get(req.params.id);
@@ -904,6 +920,13 @@ app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
   try {
     const provider = await routeProvider(rs.merchant_id, 'card');
     const account = await requireOnboardedAccount(rs.merchant_id, provider);
+    // v8.8: success_url 必须是 https，WooCommerce 本地的 http 会被 Stripe 拒；用后端自己的地址
+    let okUrl = rs.success_url || `${baseUrl(req)}/success.html`;
+    if (String(okUrl).startsWith('http://')) {
+      // 把原始地址存起来，支付完再跳回去
+      rs._orig_success_url = okUrl;
+      okUrl = `${baseUrl(req)}/success.html?orig=${encodeURIComponent(okUrl)}`;
+    }
     const payment = await stripe.createPayment({
       connected_account_id: account,
       order_id: rs.order_id,
@@ -911,7 +934,7 @@ app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
       amount: rs.amount,
       currency: rs.currency,
       description: rs.description || rs.order_id,
-      success_url: rs.success_url || `${baseUrl(req)}/success.html`,
+      success_url: okUrl,
       cancel_url: rs.cancel_url || `${baseUrl(req)}/pay.html`,
     });
     rs.payment_id = payment.payment_id;
