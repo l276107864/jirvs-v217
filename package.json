@@ -15,7 +15,7 @@
   },
   "scripts": {
     "start": "node src/server.js",
-    "test": "node test/run-fiat-only.js"
+    "test": "node test/run-fiat-only.js && node test/stripe-regression.js"
   },
   "version": "0.21.7"
 }

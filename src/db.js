@@ -17,6 +17,8 @@ function openDb() {
     `ALTER TABLE merchants ADD COLUMN api_pub_key_hash TEXT DEFAULT ''`,
     `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
     `ALTER TABLE merchants ADD COLUMN stripe TEXT DEFAULT NULL`,
+    `ALTER TABLE orders ADD COLUMN checkout_session_id TEXT DEFAULT ''`,
+    `ALTER TABLE orders ADD COLUMN stripe_account TEXT DEFAULT ''`,
   ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -68,6 +70,8 @@ function openDb() {
       pay_currency TEXT DEFAULT '',
       deposit_address TEXT DEFAULT '',
       platform_fee REAL DEFAULT 0,
+      checkout_session_id TEXT DEFAULT '',
+      stripe_account TEXT DEFAULT '',
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
@@ -88,6 +92,9 @@ function openDb() {
     `ALTER TABLE merchants ADD COLUMN airwallex TEXT DEFAULT NULL`,
     `ALTER TABLE merchants ADD COLUMN stripe TEXT DEFAULT NULL`,
   ]) { try { db.exec(ddl); } catch { /* 已存在 */ } }
+  try { db.exec(`ALTER TABLE orders ADD COLUMN checkout_session_id TEXT DEFAULT ''`); } catch { /* 已存在 */ }
+  try { db.exec(`ALTER TABLE orders ADD COLUMN stripe_account TEXT DEFAULT ''`); } catch { /* 已存在 */ }
+  db.exec(`CREATE TABLE IF NOT EXISTS stripe_webhook_events (event_id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'processing', updated_at TEXT NOT NULL)`);
   // v21: 稳定币通道个人姓名（法币通道用 company 存公司名）；老库升级加列
   try { db.exec(`ALTER TABLE merchants ADD COLUMN personal_name TEXT DEFAULT ''`); } catch { /* 列已存在 */ }
   // v21: 找回密码 token 表（只存 token 的 SHA-256 哈希）

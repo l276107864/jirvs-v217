@@ -270,8 +270,9 @@ function createAdapter() {
     const event = JSON.parse(raw);
     const obj = event.data?.object || {};
     const type = String(event.type || '').toLowerCase();
-    const succeeded = ['checkout.session.completed', 'checkout.session.async_payment_succeeded'].includes(type)
-      || (type === 'payment_intent.succeeded');
+    const succeeded = (type === 'checkout.session.completed' && ['paid', 'no_payment_required'].includes(String(obj.payment_status || '')))
+      || type === 'checkout.session.async_payment_succeeded'
+      || type === 'payment_intent.succeeded';
     const failed = ['checkout.session.expired', 'checkout.session.async_payment_failed', 'payment_intent.payment_failed'].includes(type);
     return {
       event_id: event.id || '',
@@ -284,6 +285,8 @@ function createAdapter() {
       amount: obj.amount_total != null ? obj.amount_total / 100 : (obj.amount_received != null ? obj.amount_received / 100 : null),
       currency: String(obj.currency || '').toLowerCase(),
       status: succeeded ? 'succeeded' : failed ? (type.includes('expired') ? 'canceled' : 'failed') : 'processing',
+      amount_minor: obj.amount_total != null ? Number(obj.amount_total) : (obj.amount_received != null ? Number(obj.amount_received) : null),
+      ignored: !succeeded && !failed,
       stripe_account: event.account || '',
     };
   }
