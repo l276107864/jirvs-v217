@@ -3,7 +3,7 @@
  * Plugin Name: Jirvs 支付网关
  * Plugin URI: https://www.jirvs.com
  * Description: 通过 Jirvs 聚合收款：在 WooCommerce 结账页用银行卡 / 本地电子钱包收款，一次接入，多家支付机构智能路由。
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Jirvs Limited
  * Author URI: https://www.jirvs.com
  * License: GPL-2.0-or-later
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // 插件版本号（升级时改这里）
-define( 'JIRVS_WC_VERSION', '1.0.0' );
+define( 'JIRVS_WC_VERSION', '1.0.1' );
 // 插件所在目录（用来拼 include 路径）
 define( 'JIRVS_WC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 

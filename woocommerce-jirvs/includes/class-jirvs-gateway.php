@@ -175,9 +175,16 @@ class WC_Gateway_Jirvs extends WC_Payment_Gateway {
             array(
                 'wc-api'     => 'jirvs_return',
                 'order_id'   => $order_id,
-                // 下面 session_id 在拿到 Jirvs 返回后再补
+                // Stripe Checkout 会在跳转回商家时替换该占位符；没有它，WooCommerce 无法确认订单。
+                'session_id' => '{CHECKOUT_SESSION_ID}',
             ),
             home_url( '/' )
+        );
+        // add_query_arg 可能将花括号编码成 %7B...%7D，Stripe 只识别原始占位符。
+        $return_url = str_replace(
+            array( '%7BCHECKOUT_SESSION_ID%7D', '%7bCHECKOUT_SESSION_ID%7d' ),
+            '{CHECKOUT_SESSION_ID}',
+            $return_url
         );
 
         // ---- 调用 Jirvs API：创建支付会话 ----
@@ -248,8 +255,13 @@ class WC_Gateway_Jirvs extends WC_Payment_Gateway {
             exit;
         }
 
-        // 校验会话号和订单里记的是否一致（防串单）
         $saved_session = (string) $order->get_meta( '_jirvs_session_id', true );
+        // 兼容旧订单或 Stripe 回跳丢失参数：创建订单时已保存会话号，仍需向 Jirvs 查实状态。
+        if ( '' === $session_id && '' !== $saved_session ) {
+            $session_id = $saved_session;
+        }
+
+        // 校验会话号和订单里记的是否一致（防串单）
         if ( '' === $session_id || ( '' !== $saved_session && $session_id !== $saved_session ) ) {
             wc_add_notice( '支付信息校验失败，请联系店主。', 'error' );
             wp_safe_redirect( wc_get_checkout_url() );
