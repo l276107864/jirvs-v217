@@ -884,6 +884,52 @@ app.post('/api/v1/checkout/sessions', geoFence, requireApiKey, async (req, res) 
   }
 });
 
+// v9.1: 直连 Stripe Checkout（WooCommerce 插件一步到位，不经过 Jirvs 中间页）
+app.post('/api/v1/checkout/stripe-direct', geoFence, requireApiKey, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const merchant_id = req.merchant_id;
+    const { order_id, amount, currency, description, success_url, cancel_url } = body;
+    if (!order_id || amount == null || !currency) {
+      return res.status(400).json({ error: 'order_id, amount, currency 为必填项' });
+    }
+    if (!(await merchantProviderReady(merchant_id, 'stripe'))) {
+      return res.status(400).json({ error: '商户银行卡通道未开通' });
+    }
+    const account = await requireOnboardedAccount(merchant_id, 'stripe');
+    let okUrl = success_url || `${baseUrl(req)}/success.html`;
+    if (String(okUrl).startsWith('http://')) {
+      okUrl = `${baseUrl(req)}/success.html?orig=${encodeURIComponent(okUrl)}`;
+    }
+    const payment = await stripe.createPayment({
+      connected_account_id: account,
+      order_id: String(order_id),
+      merchant_id,
+      amount: Number(amount),
+      currency: String(currency).toLowerCase(),
+      description: description || String(order_id),
+      success_url: okUrl,
+      cancel_url: cancel_url || `${baseUrl(req)}/pay.html`,
+    });
+    platform.recordOrder({
+      order_id: String(order_id),
+      merchant_id,
+      amount: Number(amount),
+      currency: String(currency).toLowerCase(),
+      description: description || String(order_id),
+      status: 'pending',
+      gateway: 'stripe',
+      rail: 'card',
+      payment_id: payment.payment_id,
+      success_url: success_url || '',
+      created_at: now(),
+    });
+    res.json({ checkout_url: payment.checkout_url, payment_id: payment.payment_id, order_id: String(order_id) });
+  } catch (err) {
+    res.status(502).json({ error: err.message });
+  }
+});
+
 // 查询收银台会话状态（成功页轮询用）
 app.get('/api/v1/checkout/sessions/:id', async (req, res) => {
   try {
