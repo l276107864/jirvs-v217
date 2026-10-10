@@ -212,7 +212,10 @@ function createAdapter() {
       'line_items[0][quantity]': 1,
       success_url: `${success_url || ''}${String(success_url || '').includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: cancel_url || '',
-      // v8.1: Stripe 新版 API 不再支持 payment_method_types，支付方式由 Stripe 后台设置决定
+      // v9.1: 显式指定支付方式（含微信支付宝），Dashboard 开了但不显示时用这个
+      'payment_method_types[0]': 'card',
+      'payment_method_types[1]': 'wechat_pay',
+      'payment_method_types[2]': 'alipay',
       client_reference_id: String(order_id),
       'metadata[order_id]': String(order_id),
       'metadata[merchant_id]': String(merchant_id),
