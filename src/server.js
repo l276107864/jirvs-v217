@@ -168,10 +168,10 @@ async function availableRails(merchant_id) {
 }
 
 // 用户选定支付方式后，Jirvs 按优先级选机构（用户不选机构）
-function routeProvider(merchant_id, rail) {
+async function routeProvider(merchant_id, rail) {
   const order = ROUTE_PRIORITY[rail] || [];
   for (const p of order) {
-    if (merchantProviderReady(merchant_id, p)) return p;
+    if (await merchantProviderReady(merchant_id, p)) return p;
   }
   throw new Error(`商户 ${merchant_id} 的${rail === 'stablecoin' ? '稳定币' : '法币'}通道尚未开通（请先在商户门户完成该通道注册并验证通过）`);
 }
@@ -655,7 +655,7 @@ app.post('/api/v1/payments', geoFence, requireApiKey, async (req, res) => {
     }
     let provider;
     try {
-      provider = routeProvider(merchant_id, rail);
+      provider = await routeProvider(merchant_id, rail);
     } catch (e) {
       return res.status(400).json({ error: e.message });
     }
@@ -902,7 +902,7 @@ app.post('/api/v1/checkout/sessions/:id/card/checkout', async (req, res) => {
   if (!rs) return res.status(404).json({ error: '收银台会话不存在或已过期' });
   if (!rs.rail_options.includes('card')) return res.status(400).json({ error: '该商户未开通银行卡支付' });
   try {
-    const provider = routeProvider(rs.merchant_id, 'card');
+    const provider = await routeProvider(rs.merchant_id, 'card');
     const account = await requireOnboardedAccount(rs.merchant_id, provider);
     const payment = await stripe.createPayment({
       connected_account_id: account,
@@ -950,7 +950,7 @@ app.post('/api/v1/checkout/sessions/:id/simulate-success', async (req, res) => {
     if (!payoneer.isSandbox()) return res.status(400).json({ error: '仅沙盒模式可用' });
     let routedProvider = null;
     for (const p of ROUTE_PRIORITY[rail] || []) {
-      if (merchantProviderReady(rs.merchant_id, p)) { routedProvider = p; break; }
+      if (await merchantProviderReady(rs.merchant_id, p)) { routedProvider = p; break; }
     }
     if (!routedProvider) return res.status(400).json({ error: '暂无可用收款通道，请稍后重试' });
     rs.status = 'complete';
