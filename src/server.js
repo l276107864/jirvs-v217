@@ -985,7 +985,23 @@ app.get('/api/v1/orders/lookup', requireApiKey, async (req, res) => {
       'SELECT order_id, merchant_id, amount, currency, status, gateway, rail, payment_id, created_at FROM orders WHERE merchant_id = ? AND order_id = ? ORDER BY created_at DESC LIMIT 1'
     ).get(merchant_id, order_id);
     if (!o) return res.status(404).json({ error: '订单不存在' });
-    res.json({ order_id: o.order_id, status: o.status, amount: o.amount, currency: o.currency, gateway: o.gateway, payment_id: o.payment_id });
+    // v9.5: 如果数据库还是未成功，实时问 Stripe 拿 Checkout Session 状态（免 webhook）
+    let status = o.status;
+    if (status !== 'succeeded' && status !== 'complete' && o.payment_id && o.payment_id.startsWith('cs_')) {
+      try {
+        // 找到商户的 Stripe 连接账号
+        const m = platform.getMerchant ? platform.getMerchant(merchant_id) : null;
+        const stripeAcct = m && (m.stripe_account_id || m.stripe_user_id) ? (m.stripe_account_id || m.stripe_user_id) : null;
+        if (stripeAcct) {
+          const sess = await stripe.getCheckoutSession(o.payment_id, stripeAcct);
+          if (sess && sess.status === 'succeeded') {
+            status = 'succeeded';
+            try { platform.updateOrder(o.order_id, { status: 'succeeded', gateway: 'stripe', rail: 'card' }); } catch {}
+          }
+        }
+      } catch {}
+    }
+    res.json({ order_id: o.order_id, status, amount: o.amount, currency: o.currency, gateway: o.gateway, payment_id: o.payment_id });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
